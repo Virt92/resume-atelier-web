@@ -2,32 +2,76 @@
 import { ref } from 'vue'
 import { useSessionStore } from '../stores/session'
 import { detectLanguage, extractDocx } from '../services/docxReader'
+import { extractPdf, looksLikeCyrillic } from '../services/pdfReader'
 
 const store = useSessionStore()
 const dragActive = ref(false)
 const loading = ref(false)
 const localError = ref('')
+const statusText = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 
 async function handleFile(file: File) {
   localError.value = ''
-  if (!file.name.toLowerCase().endsWith('.docx')) {
-    localError.value = 'Only .docx is supported in the first version.'
+  statusText.value = ''
+  const lower = file.name.toLowerCase()
+  const isDocx = lower.endsWith('.docx')
+  const isPdf = lower.endsWith('.pdf') || file.type === 'application/pdf'
+  if (!isDocx && !isPdf) {
+    localError.value = 'Only .docx and .pdf files are supported.'
     return
   }
-  if (file.size > 10 * 1024 * 1024) {
-    localError.value = 'File is larger than 10 MB.'
+  if (file.size > 20 * 1024 * 1024) {
+    localError.value = 'File is larger than 20 MB.'
     return
   }
   loading.value = true
   try {
-    const parsed = await extractDocx(file)
-    if (!parsed.text) {
-      localError.value = 'Could not extract text from this DOCX.'
-      return
+    let text = ''
+    let html = ''
+    let usedOcr = false
+
+    if (isDocx) {
+      statusText.value = 'Reading DOCX…'
+      const parsed = await extractDocx(file)
+      if (!parsed.text) {
+        localError.value = 'Could not extract text from this DOCX.'
+        return
+      }
+      text = parsed.text
+      html = parsed.html
+    } else {
+      // PDF path: try text layer first, OCR on fallback.
+      statusText.value = 'Opening PDF…'
+      // Pre-extract a tiny bit so we can language-hint OCR if it's needed.
+      const preview = await extractPdf(file, {
+        onOcrProgress: (p, s) => {
+          statusText.value = `OCR · ${s} · ${Math.round(p * 100)}%`
+        }
+      })
+      text = preview.text
+      usedOcr = preview.usedOcr
+      if (!text) {
+        // Force OCR if the first pass returned nothing (e.g. image-only).
+        statusText.value = 'OCR · preparing…'
+        const forced = await extractPdf(file, {
+          forceOcr: true,
+          languageHint: looksLikeCyrillic(text) ? 'Ukrainian' : 'English',
+          onOcrProgress: (p, s) => {
+            statusText.value = `OCR · ${s} · ${Math.round(p * 100)}%`
+          }
+        })
+        text = forced.text
+        usedOcr = forced.usedOcr
+      }
+      if (!text) {
+        localError.value = 'Could not extract any text from this PDF.'
+        return
+      }
     }
-    const lang = detectLanguage(parsed.text)
-    store.setResumeFile(file, parsed.text, parsed.html, lang)
+
+    const lang = detectLanguage(text)
+    store.setResumeFile(file, text, html, lang, { usedOcr })
     if (store.settings.language === 'English' && lang !== 'English') {
       store.updateSettings({ language: lang })
     }
@@ -35,6 +79,7 @@ async function handleFile(file: File) {
     localError.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+    statusText.value = ''
   }
 }
 
@@ -54,6 +99,7 @@ function clearResume() {
   store.resumeFile = null
   store.resumeText = ''
   store.resumeHtml = ''
+  store.resumeUsedOcr = false
   store.markStage('upload', 'pending')
   store.markStage('parse', 'pending')
 }
@@ -75,7 +121,7 @@ function clearResume() {
         <input
           ref="fileInput"
           type="file"
-          accept=".docx"
+          accept=".docx,.pdf,application/pdf"
           class="hidden"
           @change="onPick"
         />
@@ -99,9 +145,13 @@ function clearResume() {
         </div>
         <div>
           <div class="font-display text-xl font-semibold">
-            {{ loading ? 'Reading your resume…' : 'Drop your resume or click to upload' }}
+            {{ loading
+              ? (statusText || 'Reading your resume…')
+              : 'Drop your resume or click to upload' }}
           </div>
-          <div class="text-ink-500 text-sm mt-1">DOCX, up to 10 MB</div>
+          <div class="text-ink-500 text-sm mt-1">
+            DOCX or PDF (with OCR for scanned pages), up to 20 MB
+          </div>
         </div>
         <button
           type="button"
@@ -131,7 +181,8 @@ function clearResume() {
         <div class="truncate font-medium">{{ store.resumeFile?.name }}</div>
         <div class="text-xs text-ink-500 mt-0.5">
           {{ Math.round((store.resumeFile?.size ?? 0) / 1024) }} KB ·
-          detected language: {{ store.detectedLanguage ?? '—' }}
+          language: {{ store.detectedLanguage ?? '—' }}
+          <span v-if="store.resumeUsedOcr" class="ml-1 text-accent-700 font-medium">· OCR</span>
         </div>
       </div>
       <button class="btn-ghost text-sm" @click="clearResume">Replace</button>

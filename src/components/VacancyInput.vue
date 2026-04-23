@@ -1,45 +1,34 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSessionStore } from '../stores/session'
+import { fetchVacancy } from '../services/vacancyFetcher'
 
 const store = useSessionStore()
 const urlInput = ref('')
 const urlBusy = ref(false)
 const urlError = ref('')
+const urlNote = ref('')
 
 const charCount = computed(() => store.vacancyText.length)
 
 async function fetchFromUrl() {
   urlError.value = ''
+  urlNote.value = ''
   if (!urlInput.value) return
   urlBusy.value = true
   try {
-    // Try direct fetch first; likely blocked by CORS on most job boards.
-    try {
-      const res = await fetch(urlInput.value, { mode: 'cors' })
-      if (res.ok) {
-        const html = await res.text()
-        const text = htmlToText(html)
-        if (text.length > 200) {
-          store.vacancyText = text
-          store.vacancyUrl = urlInput.value
-          return
-        }
-      }
-    } catch {
-      // ignore and fall through
-    }
-    urlError.value =
-      'Could not fetch this URL from the browser (CORS). Open the vacancy page, copy the text, and paste it below.'
+    const result = await fetchVacancy(urlInput.value)
+    store.vacancyText = result.text
+    store.vacancyUrl = urlInput.value
+    urlNote.value =
+      result.source === 'direct'
+        ? 'Fetched directly from the site.'
+        : `Fetched via ${result.proxyUsed ?? 'proxy'} (direct CORS blocked).`
+  } catch (e) {
+    urlError.value = e instanceof Error ? e.message : String(e)
   } finally {
     urlBusy.value = false
   }
-}
-
-function htmlToText(html: string): string {
-  const doc = new DOMParser().parseFromString(html, 'text/html')
-  doc.querySelectorAll('script, style, nav, header, footer, noscript').forEach((n) => n.remove())
-  return (doc.body?.innerText || '').replace(/\n{3,}/g, '\n\n').trim()
 }
 </script>
 
@@ -59,13 +48,14 @@ function htmlToText(html: string): string {
       <input
         v-model="urlInput"
         class="input"
-        placeholder="https://company.com/jobs/123  (optional — many boards block direct fetch)"
+        placeholder="https://jobs.dou.ua/...  (DOU, Djinni, LinkedIn, Indeed, Greenhouse, Lever supported)"
       />
       <button class="btn-secondary shrink-0" :disabled="urlBusy || !urlInput" @click="fetchFromUrl">
         {{ urlBusy ? 'Fetching…' : 'Fetch' }}
       </button>
     </div>
     <p v-if="urlError" class="text-xs text-rose-600 mb-2">{{ urlError }}</p>
+    <p v-else-if="urlNote" class="text-xs text-emerald-700 mb-2">{{ urlNote }}</p>
 
     <textarea
       v-model="store.vacancyText"

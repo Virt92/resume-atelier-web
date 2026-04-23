@@ -78,10 +78,23 @@ export interface RewrittenResume {
   changedSections: { section: string; before: string; after: string }[]
 }
 
+export interface ATSAuditBreakdown {
+  mustHaveCovered: number
+  mustHaveTotal: number
+  toolsCovered: number
+  toolsTotal: number
+  languageRequirementsMet: boolean
+  educationPresent: boolean
+  yearsMeetsOrExceeds: boolean
+  unsupportedCount: number
+  penalties: string[]
+}
+
 export interface ATSAudit {
   score: number
   warnings: string[]
   keywordCoverage: { keyword: string; present: boolean }[]
+  breakdown?: ATSAuditBreakdown
 }
 
 export interface GapAssist {

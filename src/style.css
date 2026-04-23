@@ -50,6 +50,31 @@ body {
 .diff-removed {
   @apply bg-rose-100 text-rose-900 line-through decoration-rose-400/60 rounded-sm px-0.5;
 }
+.diff-removed-line {
+  @apply line-through decoration-rose-400/70 text-rose-700;
+}
+
+@layer components {
+  .skill-pill {
+    @apply inline-flex items-center rounded-full border border-ink-200 bg-ink-50 px-3 py-1 text-[13px] text-ink-800 font-medium;
+  }
+  .skill-pill--added {
+    @apply bg-emerald-50 text-emerald-800 border-emerald-200;
+  }
+  .skill-pill--removed {
+    @apply bg-rose-50 text-rose-700 border-rose-200 line-through decoration-rose-400/60;
+  }
+
+  .resume-heading {
+    @apply text-[11px] font-bold uppercase tracking-[0.22em] text-accent-700 mb-3 pb-1.5 border-b border-ink-100;
+  }
+  .resume-body {
+    @apply text-[15px] leading-relaxed text-ink-800;
+  }
+  .resume-sheet {
+    font-family: 'Inter', 'Calibri', system-ui, sans-serif;
+  }
+}
 
 /* Print styles for PDF export */
 @media print {

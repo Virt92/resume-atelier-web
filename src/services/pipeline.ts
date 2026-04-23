@@ -10,6 +10,7 @@ import {
 } from './prompts'
 import type {
   ATSAudit,
+  ATSAuditBreakdown,
   EvidenceMap,
   GapAssist,
   Language,
@@ -131,18 +132,129 @@ export async function rewriteResume(
 export async function atsAudit(
   ctx: PipelineContext,
   rewritten: RewrittenResume,
-  vacancy: VacancyAnalysis
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
 ): Promise<ATSAudit> {
   const raw = await runStage<Partial<ATSAudit>>(
     ctx,
     'ats_audit',
-    atsAuditPrompt(rewritten, vacancy)
+    atsAuditPrompt(rewritten, vacancy, evidence)
+  )
+  const reconciled = reconcileAtsScore(
+    raw.breakdown,
+    typeof raw.score === 'number' ? raw.score : undefined,
+    vacancy,
+    evidence
   )
   return {
-    score: typeof raw.score === 'number' ? raw.score : 0,
+    score: reconciled.score,
     warnings: raw.warnings ?? [],
-    keywordCoverage: raw.keywordCoverage ?? []
+    keywordCoverage: raw.keywordCoverage ?? [],
+    breakdown: reconciled.breakdown
   }
+}
+
+/**
+ * Deterministic post-process: recompute the score from the breakdown using the same rubric
+ * declared in the prompt. We do NOT trust the LLM's self-reported number when the breakdown
+ * disagrees with it (caps blind optimism).
+ */
+function reconcileAtsScore(
+  breakdown: Partial<ATSAuditBreakdown> | undefined,
+  llmScore: number | undefined,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
+): { score: number; breakdown: ATSAuditBreakdown } {
+  const unsupportedItems = (evidence?.items ?? []).filter(
+    (i) => i.support === 'unsupported'
+  ).length
+
+  const b: ATSAuditBreakdown = {
+    mustHaveCovered: clampInt(
+      breakdown?.mustHaveCovered ?? 0,
+      0,
+      vacancy.mustHave.length
+    ),
+    mustHaveTotal: vacancy.mustHave.length,
+    toolsCovered: clampInt(breakdown?.toolsCovered ?? 0, 0, vacancy.tools.length),
+    toolsTotal: vacancy.tools.length,
+    languageRequirementsMet:
+      typeof breakdown?.languageRequirementsMet === 'boolean'
+        ? breakdown.languageRequirementsMet
+        : vacancy.languageRequirements.length === 0,
+    educationPresent:
+      typeof breakdown?.educationPresent === 'boolean'
+        ? breakdown.educationPresent
+        : true,
+    yearsMeetsOrExceeds:
+      typeof breakdown?.yearsMeetsOrExceeds === 'boolean'
+        ? breakdown.yearsMeetsOrExceeds
+        : true,
+    unsupportedCount: clampInt(
+      breakdown?.unsupportedCount ?? unsupportedItems,
+      0,
+      Math.max(unsupportedItems, 0)
+    ),
+    penalties: breakdown?.penalties ?? []
+  }
+
+  let score = 100
+  const penalties: string[] = []
+
+  const missingMustHave = Math.max(0, b.mustHaveTotal - b.mustHaveCovered)
+  if (missingMustHave > 0) {
+    const p = missingMustHave * 8
+    score -= p
+    penalties.push(`-${p}: ${missingMustHave} must-have item(s) not evidenced`)
+  }
+
+  const missingTools = Math.max(0, b.toolsTotal - b.toolsCovered)
+  if (missingTools > 0) {
+    const p = missingTools * 3
+    score -= p
+    penalties.push(`-${p}: ${missingTools} tool(s) not mentioned`)
+  }
+
+  if (vacancy.languageRequirements.length && !b.languageRequirementsMet) {
+    score -= 10
+    penalties.push(`-10: language requirement not stated on resume`)
+  }
+
+  const vacancyMentionsEducation = /educat|degree|bachelor|master|diplom|унівёверс|ліц|ВНЗ|высш/i.test(
+    vacancy.mustHave.concat(vacancy.preferred, vacancy.responsibilities).join(' ')
+  )
+  if (vacancyMentionsEducation && !b.educationPresent) {
+    score -= 8
+    penalties.push(`-8: education required but no education entries`)
+  }
+
+  if (vacancy.yearsRequired && !b.yearsMeetsOrExceeds) {
+    score -= 5
+    penalties.push(`-5: years of experience below requirement`)
+  }
+
+  const unsupPenalty = Math.min(b.unsupportedCount * 2, 15)
+  if (unsupPenalty > 0) {
+    score -= unsupPenalty
+    penalties.push(
+      `-${unsupPenalty}: ${b.unsupportedCount} unsupported requirement(s)`
+    )
+  }
+
+  b.penalties = penalties
+  score = Math.max(0, Math.min(100, Math.round(score)))
+
+  // If the LLM reported a lower score (e.g. it spotted something we missed), respect that.
+  if (typeof llmScore === 'number' && llmScore >= 0 && llmScore < score) {
+    score = Math.round(llmScore)
+  }
+
+  return { score, breakdown: b }
+}
+
+function clampInt(v: number, min: number, max: number): number {
+  if (!Number.isFinite(v)) return min
+  return Math.max(min, Math.min(max, Math.round(v)))
 }
 
 export async function gapAssist(

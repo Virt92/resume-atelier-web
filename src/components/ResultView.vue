@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { useSessionStore } from '../stores/session'
 import DiffSpan from './DiffSpan.vue'
+import DiffList from './DiffList.vue'
+import DiffBullets from './DiffBullets.vue'
 import { buildAdaptedDocx } from '../services/docxWriter'
 
 const store = useSessionStore()
@@ -25,6 +27,13 @@ const indirectMatches = computed(
   () => store.evidence?.items.filter((i) => i.support === 'indirect') ?? []
 )
 
+const scoreTone = computed(() => {
+  const s = store.audit?.score ?? 0
+  if (s >= 80) return 'text-emerald-600'
+  if (s >= 60) return 'text-amber-600'
+  return 'text-rose-600'
+})
+
 async function downloadDocx() {
   if (!store.facts || !store.rewritten) return
   exporting.value = true
@@ -47,10 +56,17 @@ function printPdf() {
       <div class="card p-5">
         <div class="label mb-1">ATS audit</div>
         <div class="flex items-baseline gap-2">
-          <div class="font-display text-4xl font-bold text-ink-900">
+          <div class="font-display text-4xl font-bold" :class="scoreTone">
             {{ store.audit?.score ?? '—' }}
           </div>
           <div class="text-ink-500 text-sm">/ 100</div>
+        </div>
+        <div
+          v-if="store.audit?.breakdown?.penalties?.length"
+          class="mt-3 text-xs text-ink-600 space-y-0.5"
+        >
+          <div class="label text-ink-500 mb-1">How we got there</div>
+          <div v-for="p in store.audit!.breakdown!.penalties" :key="p">{{ p }}</div>
         </div>
         <div
           v-if="store.audit?.warnings?.length"
@@ -146,19 +162,31 @@ function printPdf() {
         <button class="btn-primary" @click="printPdf">Save as PDF</button>
       </div>
 
-      <article class="card p-10 print-page max-w-[850px] mx-auto">
-        <header class="text-center border-b border-ink-100 pb-6 mb-6">
-          <h1 class="font-display text-3xl font-bold tracking-tight">
+      <article class="resume-sheet card p-10 sm:p-12 print-page max-w-[860px] mx-auto">
+        <header class="text-center pb-6 mb-6 relative">
+          <h1 class="font-display text-4xl font-bold tracking-tight text-ink-900">
             {{ store.facts?.name ?? 'Your Name' }}
           </h1>
-          <p v-if="store.facts?.contacts?.length" class="text-sm text-ink-500 mt-2">
+          <p
+            v-if="store.facts?.inferredRole"
+            class="text-sm uppercase tracking-[0.18em] text-accent-700 font-semibold mt-2"
+          >
+            {{ store.facts!.inferredRole }}
+          </p>
+          <p
+            v-if="store.facts?.contacts?.length"
+            class="text-sm text-ink-500 mt-3"
+          >
             {{ store.facts!.contacts.join('  ·  ') }}
           </p>
+          <div
+            class="absolute bottom-0 left-1/2 -translate-x-1/2 h-[2px] w-16 bg-accent-500 rounded-full"
+          />
         </header>
 
-        <section v-if="afterSummary" class="mb-6">
-          <h2 class="label mb-2">Summary</h2>
-          <p class="text-[15px] leading-relaxed" :title="beforeSummary">
+        <section v-if="afterSummary" class="mb-7">
+          <h2 class="resume-heading">Summary</h2>
+          <p class="resume-body" :title="beforeSummary">
             <DiffSpan
               v-if="showDiff"
               :before="beforeSummary"
@@ -168,78 +196,80 @@ function printPdf() {
           </p>
         </section>
 
-        <section v-if="store.rewritten!.skills.length" class="mb-6">
-          <h2 class="label mb-2">Skills</h2>
-          <p class="text-[14px] leading-relaxed text-ink-800">
-            <DiffSpan
-              v-if="showDiff"
-              :before="store.facts?.skills.join(' · ') ?? ''"
-              :after="store.rewritten!.skills.join(' · ')"
-            />
-            <span v-else>{{ store.rewritten!.skills.join(' · ') }}</span>
-          </p>
+        <section v-if="store.rewritten!.skills.length" class="mb-7">
+          <h2 class="resume-heading">Skills</h2>
+          <DiffList
+            :before="store.facts?.skills ?? []"
+            :after="store.rewritten!.skills"
+            :show-diff="showDiff"
+          />
         </section>
 
-        <section v-if="store.rewritten!.experience.length" class="mb-6">
-          <h2 class="label mb-3">Experience</h2>
-          <div class="space-y-5">
+        <section v-if="store.rewritten!.experience.length" class="mb-7">
+          <h2 class="resume-heading">Experience</h2>
+          <div class="space-y-6">
             <div
               v-for="(e, idx) in store.rewritten!.experience"
               :key="idx"
             >
-              <div class="flex items-baseline justify-between gap-3">
+              <div class="flex items-baseline justify-between gap-3 border-b border-ink-100 pb-1.5 mb-2">
                 <div>
                   <div class="font-semibold text-ink-900">{{ e.role }}</div>
-                  <div class="text-sm text-ink-600">{{ e.company }}</div>
+                  <div class="text-sm text-ink-600">{{ e.company }}<span v-if="e.location" class="text-ink-400"> · {{ e.location }}</span></div>
                 </div>
-                <div class="text-xs text-ink-500 whitespace-nowrap">
+                <div class="text-xs text-ink-500 whitespace-nowrap font-medium">
                   {{ [e.start, e.end].filter(Boolean).join(' — ') }}
                 </div>
               </div>
-              <ul class="mt-2 space-y-1.5 text-[14px] text-ink-800 list-disc pl-5">
-                <li v-for="(b, bi) in idx === 0 ? afterLatestBullets : e.bullets" :key="bi">
-                  <template v-if="idx === 0 && showDiff">
-                    <DiffSpan
-                      :before="beforeLatestBullets[bi] ?? ''"
-                      :after="b"
-                    />
-                  </template>
-                  <template v-else>{{ b }}</template>
-                </li>
+              <DiffBullets
+                v-if="idx === 0"
+                :before="beforeLatestBullets"
+                :after="afterLatestBullets"
+                :show-diff="showDiff"
+              />
+              <ul v-else class="mt-2 space-y-1.5 text-[14px] text-ink-800 list-disc pl-5">
+                <li v-for="(b, bi) in e.bullets" :key="bi">{{ b }}</li>
               </ul>
             </div>
           </div>
         </section>
 
-        <section v-if="store.facts?.education?.length" class="mb-6">
-          <h2 class="label mb-2">Education</h2>
+        <section v-if="store.facts?.education?.length" class="mb-7">
+          <h2 class="resume-heading">Education</h2>
           <ul class="space-y-2">
             <li
               v-for="(e, idx) in store.facts!.education"
               :key="idx"
-              class="text-[14px]"
+              class="flex items-baseline justify-between gap-3 text-[14px]"
             >
-              <span class="font-medium">{{ e.degree }}</span>
-              <span class="text-ink-600"> — {{ e.institution }}</span>
-              <span v-if="e.start || e.end" class="text-ink-500 text-xs ml-2">
+              <div>
+                <span class="font-medium text-ink-900">{{ e.degree }}</span>
+                <span class="text-ink-600"> — {{ e.institution }}</span>
+              </div>
+              <span v-if="e.start || e.end" class="text-ink-500 text-xs whitespace-nowrap">
                 {{ [e.start, e.end].filter(Boolean).join(' — ') }}
               </span>
             </li>
           </ul>
         </section>
 
-        <section v-if="store.facts?.projects?.length" class="mb-6">
-          <h2 class="label mb-2">Projects</h2>
-          <ul class="space-y-2">
+        <section v-if="store.facts?.projects?.length" class="mb-7">
+          <h2 class="resume-heading">Projects</h2>
+          <ul class="space-y-3">
             <li v-for="(p, idx) in store.facts!.projects" :key="idx">
-              <div class="font-medium">{{ p.title }}</div>
-              <div class="text-[14px] text-ink-700">{{ p.description }}</div>
+              <div class="font-medium text-ink-900">{{ p.title }}</div>
+              <div class="text-[14px] text-ink-700 leading-relaxed">{{ p.description }}</div>
             </li>
           </ul>
         </section>
 
+        <section v-if="store.facts?.languages?.length" class="mb-7">
+          <h2 class="resume-heading">Languages</h2>
+          <p class="resume-body">{{ store.facts!.languages.join('   ·   ') }}</p>
+        </section>
+
         <section v-if="store.facts?.certifications?.length">
-          <h2 class="label mb-2">Certifications</h2>
+          <h2 class="resume-heading">Certifications</h2>
           <ul class="list-disc pl-5 space-y-1 text-[14px]">
             <li v-for="c in store.facts!.certifications" :key="c">{{ c }}</li>
           </ul>

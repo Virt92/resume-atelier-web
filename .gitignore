@@ -24,3 +24,5 @@ pnpm-debug.log*
 
 # Build artifacts
 *.zip
+.vite/
+TEST_PLAN.md

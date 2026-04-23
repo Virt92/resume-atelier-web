@@ -57,6 +57,7 @@ export const useSessionStore = defineStore('session', {
     resumeFile: null as File | null,
     resumeText: '' as string,
     resumeHtml: '' as string,
+    resumeUsedOcr: false as boolean,
     detectedLanguage: undefined as Language | undefined,
 
     vacancyText: '' as string,
@@ -125,11 +126,18 @@ export const useSessionStore = defineStore('session', {
         if (error) s.error = error
       }
     },
-    setResumeFile(file: File, text: string, html: string, lang?: Language) {
+    setResumeFile(
+      file: File,
+      text: string,
+      html: string,
+      lang?: Language,
+      meta?: { usedOcr?: boolean }
+    ) {
       this.resumeFile = file
       this.resumeText = text
       this.resumeHtml = html
       this.detectedLanguage = lang
+      this.resumeUsedOcr = Boolean(meta?.usedOcr)
       this.markStage('upload', 'done')
       this.markStage('parse', 'done')
     }

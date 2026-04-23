@@ -46,7 +46,7 @@ export async function runPipeline(): Promise<void> {
     store.rewritten = rewritten
 
     const [audit, gap] = await Promise.all([
-      atsAudit(ctx, rewritten, vacancy),
+      atsAudit(ctx, rewritten, vacancy, evidence),
       gapAssist(ctx, evidence)
     ])
     store.audit = audit

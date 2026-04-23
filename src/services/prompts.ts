@@ -150,26 +150,55 @@ ${JSON.stringify(evidence)}
 
 export const atsAuditPrompt = (
   rewritten: unknown,
-  vacancy: unknown
+  vacancy: unknown,
+  evidence: unknown
 ) => `
-You audit the adapted resume for ATS friendliness and keyword coverage.
+You are a STRICT ATS auditor. Be honest, not generous.
 
 Output strict JSON:
 {
-  "score": number,                 // 0..100
-  "warnings": string[],            // e.g. "Missing quantified results", "Acronyms not expanded"
+  "score": number,                   // integer 0..100, computed by the rubric below
+  "breakdown": {
+    "mustHaveCovered": number,       // count of vacancy.mustHave items directly evidenced by rewritten resume
+    "mustHaveTotal": number,         // = vacancy.mustHave.length
+    "toolsCovered": number,          // count of vacancy.tools present as a keyword in rewritten resume
+    "toolsTotal": number,            // = vacancy.tools.length
+    "languageRequirementsMet": boolean,
+    "educationPresent": boolean,
+    "yearsMeetsOrExceeds": boolean,  // resume experience covers vacancy.yearsRequired (null => true)
+    "unsupportedCount": number,      // count of evidence.items with support="unsupported"
+    "penalties": string[]            // short reasons the score lost points
+  },
+  "warnings": string[],              // ATS problems (e.g. "English level not stated", "Education section empty")
   "keywordCoverage": [
     { "keyword": string, "present": boolean }
   ]
 }
 
-Use the vacancy's mustHave + tools as keyword source.
+SCORING RUBRIC (apply exactly, no rounding up):
+- Start from 100.
+- Subtract **8 points** for every vacancy.mustHave item NOT directly evidenced in the rewritten resume.
+- Subtract **3 points** for every vacancy.tools item not mentioned as a keyword.
+- Subtract **10 points** if vacancy.languageRequirements are non-empty AND the resume does not state the required level (e.g. "English — Advanced").
+- Subtract **8 points** if vacancy explicitly requires formal education AND the resume has no education entries.
+- Subtract **5 points** if vacancy.yearsRequired is stated and the resume's total experience falls short.
+- Subtract **2 points** per evidence.items entry with support="unsupported", up to a total of 15 points.
+- Subtract **5 points** if summary has fewer than 30 words.
+- Floor at 0. Never exceed 100.
+- Do NOT reward adding irrelevant keywords, padding, or repeated words.
+
+Be conservative when you can't verify a match: treat ambiguous matches as NOT covered.
+
+Populate keywordCoverage with the UNION of vacancy.mustHave + vacancy.tools (deduplicated, max ~30).
 
 Rewritten resume JSON:
 ${JSON.stringify(rewritten)}
 
 Vacancy analysis JSON:
 ${JSON.stringify(vacancy)}
+
+Evidence map JSON:
+${JSON.stringify(evidence)}
 `.trim()
 
 export const gapAssistPrompt = (
