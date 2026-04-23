@@ -300,7 +300,7 @@ function printPdf() {
           <DiffList
             :before="factsForDisplay?.skills ?? []"
             :after="store.rewritten!.skills"
-            :show-diff="showDiff"
+            :show-diff="showDiff && summaryDiffMeaningful"
           />
         </section>
 
@@ -324,7 +324,7 @@ function printPdf() {
                 v-if="idx === 0"
                 :before="beforeLatestBullets"
                 :after="afterLatestBullets"
-                :show-diff="showDiff"
+                :show-diff="showDiff && summaryDiffMeaningful"
               />
               <ul v-else class="mt-2 space-y-1.5 text-[14px] list-disc pl-5" style="color: var(--resume-ink, #1c2030)">
                 <li v-for="(b, bi) in e.bullets" :key="bi">{{ b }}</li>
