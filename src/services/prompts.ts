@@ -219,6 +219,105 @@ ${JSON.stringify(evidence)}
 `.trim()
 }
 
+export const selfCritiquePrompt = (
+  rewritten: unknown,
+  vacancy: unknown,
+  evidence: unknown,
+  language: Language
+) => `
+You are a senior recruiter reviewing a tailored resume against a specific vacancy.
+Give a strict, honest critique. Your job is to find weaknesses that would cost the
+candidate an interview — NOT to praise.
+
+Return strict JSON:
+{
+  "issues": [
+    {
+      "section": "summary" | "skills" | "latestRoleBullets" | "experience" | "overall",
+      "severity": "high" | "medium" | "low",
+      "what": string,       // what specifically is weak (short phrase)
+      "why": string,        // why it hurts (1 sentence)
+      "fix": string         // concrete suggestion the rewriter can act on (1-2 sentences)
+    }
+  ],
+  "missingKeywords": string[],     // vacancy keywords that SHOULD be present based on evidence but are not
+  "overclaims": string[],          // claims in rewritten that are NOT traceable to facts/evidence (if any)
+  "generalTone": "concrete" | "vague" | "buzzwordy"
+}
+
+Rules:
+- Critique language = ${languageName[language]}.
+- Prefer **high**/medium severity over low.
+- "fix" must be actionable — "rewrite bullet 2 with X" not "make it better".
+- If summary is vague, say which specific responsibilities from vacancy it failed to cover.
+- If bullets lack metrics AND metrics ARE present in original facts, flag that.
+- Do NOT invent requirements the vacancy did not list.
+- Do NOT suggest fabricating tools, roles, or experience the candidate does not have.
+- Be blunt. Weak resumes deserve high-severity issues.
+
+Rewritten resume JSON:
+${JSON.stringify(rewritten)}
+
+Vacancy analysis JSON:
+${JSON.stringify(vacancy)}
+
+Evidence map JSON:
+${JSON.stringify(evidence)}
+`.trim()
+
+export const refineRewritePrompt = (
+  rewritten: unknown,
+  facts: unknown,
+  vacancy: unknown,
+  evidence: unknown,
+  critique: unknown,
+  language: Language
+) => `
+You are the same rewriter that produced the resume below. A senior recruiter
+critiqued it. Your task is to apply EVERY actionable fix from the critique while
+keeping the same JSON shape. The goal is an objectively stronger resume on the
+same underlying facts — no fabrication.
+
+Return strict JSON matching this shape EXACTLY:
+{
+  "summary": string,
+  "skills": string[],
+  "latestRoleBullets": string[],
+  "experience": [
+    { "company": string, "role": string, "start": string, "end": string, "location": string | null, "bullets": string[] }
+  ],
+  "changedSections": [
+    { "section": string, "before": string, "after": string }
+  ]
+}
+
+Rules:
+- Target language: ${languageName[language]}.
+- Apply the critique's "fix" fields faithfully. If critique.missingKeywords is non-empty, integrate those keywords into summary/skills/latestRoleBullets where supported by evidence.
+- If critique.overclaims is non-empty, SOFTEN or DELETE each overclaim — evidence is more important than keyword density.
+- NEVER invent companies, tools, years, degrees, or portfolio links that aren't in facts.
+- Preserve dates, company names, and non-latest role bullets (keep them translated into target language, but don't alter content).
+- Keep "experience" in the same order and length as the input.
+- Update "changedSections" to reflect the refinement: for every field you actually changed, add one { section, before, after } entry (before = text from the input rewritten, after = your new text).
+- Summary must remain 4-5 sentences, 60-110 words.
+- Skills array must NOT contain role/job titles.
+
+Previous rewritten JSON:
+${JSON.stringify(rewritten)}
+
+Original facts JSON (source of truth — do not invent beyond this):
+${JSON.stringify(facts)}
+
+Vacancy analysis JSON:
+${JSON.stringify(vacancy)}
+
+Evidence map JSON:
+${JSON.stringify(evidence)}
+
+Recruiter critique JSON (apply every item):
+${JSON.stringify(critique)}
+`.trim()
+
 export const atsAuditPrompt = (
   rewritten: unknown,
   vacancy: unknown,

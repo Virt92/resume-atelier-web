@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import type {
   ATSAudit,
+  Critique,
   EvidenceMap,
   GapAssist,
   Language,
@@ -23,7 +24,8 @@ function loadSettings(): Settings {
     model: getDefaultModel(),
     language: 'English',
     mode: 'standard',
-    theme: 'classic'
+    theme: 'classic',
+    selfCritique: true
   }
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -38,7 +40,11 @@ function loadSettings(): Settings {
       model: parsed.model || defaults.model,
       language: lang,
       mode: (parsed.mode as Mode) || defaults.mode,
-      theme: (parsed.theme as ThemeId) || defaults.theme
+      theme: (parsed.theme as ThemeId) || defaults.theme,
+      selfCritique:
+        typeof parsed.selfCritique === 'boolean'
+          ? parsed.selfCritique
+          : defaults.selfCritique
     }
   } catch {
     return defaults
@@ -52,6 +58,8 @@ const initialStages: StageState[] = [
   { id: 'analyze_vacancy', label: 'Analyze vacancy', status: 'pending' },
   { id: 'map_evidence', label: 'Map evidence', status: 'pending' },
   { id: 'rewrite', label: 'Rewrite sections', status: 'pending' },
+  { id: 'self_critique', label: 'Self-critique', status: 'pending' },
+  { id: 'refine_rewrite', label: 'Refine', status: 'pending' },
   { id: 'translate_polish', label: 'Translate & polish', status: 'pending' },
   { id: 'ats_audit', label: 'ATS audit', status: 'pending' },
   { id: 'gap_assist', label: 'Gap assist', status: 'pending' }
@@ -80,6 +88,7 @@ export const useSessionStore = defineStore('session', {
     vacancy: null as VacancyAnalysis | null,
     evidence: null as EvidenceMap | null,
     rewritten: null as RewrittenResume | null,
+    critique: null as Critique | null,
     baselineAudit: null as ATSAudit | null,
     audit: null as ATSAudit | null,
     gap: null as GapAssist | null,
@@ -124,6 +133,7 @@ export const useSessionStore = defineStore('session', {
       this.vacancy = null
       this.evidence = null
       this.rewritten = null
+      this.critique = null
       this.baselineAudit = null
       this.audit = null
       this.gap = null

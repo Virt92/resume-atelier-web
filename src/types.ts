@@ -26,6 +26,7 @@ export interface Settings {
   language: Language
   mode: Mode
   theme: ThemeId
+  selfCritique?: boolean
 }
 
 export interface ExperienceItem {
@@ -130,10 +131,27 @@ export type StageId =
   | 'analyze_vacancy'
   | 'map_evidence'
   | 'rewrite'
+  | 'self_critique'
+  | 'refine_rewrite'
   | 'translate_polish'
   | 'ats_audit'
   | 'gap_assist'
   | 'done'
+
+export interface CritiqueIssue {
+  section: string
+  severity: 'high' | 'medium' | 'low'
+  what: string
+  why: string
+  fix: string
+}
+
+export interface Critique {
+  issues: CritiqueIssue[]
+  missingKeywords: string[]
+  overclaims: string[]
+  generalTone?: 'concrete' | 'vague' | 'buzzwordy'
+}
 
 export type StageStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped'
 

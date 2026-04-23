@@ -5,7 +5,9 @@ import {
   extractResumeFacts,
   gapAssist,
   mapEvidence,
+  refineRewrite,
   rewriteResume,
+  selfCritique,
   translateAndPolish,
   type PipelineContext
 } from './pipeline'
@@ -29,6 +31,7 @@ export async function runPipeline(): Promise<void> {
     onProgress: (stage, status, detail) => {
       if (status === 'running') store.markStage(stage as never, 'running')
       else if (status === 'done') store.markStage(stage as never, 'done')
+      else if (status === 'skipped') store.markStage(stage as never, 'skipped')
       else if (status === 'error') store.markStage(stage as never, 'error', detail)
     }
   }
@@ -53,8 +56,35 @@ export async function runPipeline(): Promise<void> {
       evidence
     )
 
-    const rewritten = await rewriteResume(ctx, facts, vacancy, evidence)
+    let rewritten = await rewriteResume(ctx, facts, vacancy, evidence)
     store.rewritten = rewritten
+
+    // Self-critique + refine loop: a senior-recruiter pass that finds concrete
+    // weaknesses, then a refine pass that applies those fixes. Both stages are
+    // optional (controlled by settings.selfCritique; default ON). If either
+    // LLM call fails we fall back to the original rewrite so the pipeline
+    // always completes.
+    const selfCritiqueEnabled = store.settings.selfCritique !== false
+    if (selfCritiqueEnabled) {
+      try {
+        const critique = await selfCritique(ctx, rewritten, vacancy, evidence)
+        store.critique = critique
+        rewritten = await refineRewrite(
+          ctx,
+          rewritten,
+          facts,
+          vacancy,
+          evidence,
+          critique
+        )
+        store.rewritten = rewritten
+      } catch {
+        // non-fatal; keep the original rewrite and continue
+      }
+    } else {
+      store.markStage('self_critique', 'skipped')
+      store.markStage('refine_rewrite', 'skipped')
+    }
 
     // Translate & polish: only when source language differs from target. This
     // runs a second LLM pass that translates every narrative field (not just
