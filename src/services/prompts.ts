@@ -260,8 +260,9 @@ Return strict JSON matching this shape EXACTLY:
 }
 
 Rules:
-- Translate ALL narrative text (summary, bullets, role titles if meaningful words, skills labels, education degree labels, project descriptions) into ${languageName[targetLanguage]}.
-- DO NOT translate: company brand names, tool names (Figma, Jira, AWS…), product names, URLs, emails, phone numbers, country codes, or personal names.
+- EVERY narrative string in the output MUST be written in ${languageName[targetLanguage]}. No sentence may remain in another language, even if it already reads that way in the input. Translate summary, bullets, role titles (when they are meaningful words like "Designer" or "Developer"), skills labels, education degree labels, project titles and descriptions, certification labels.
+- This includes bullets that were added by the adaptation pass and may currently be in English — translate THEM too. Verify each bullet by re-reading it: if it is not ${languageName[targetLanguage]}, rewrite it.
+- DO NOT translate: company brand names, tool names (Figma, Jira, AWS, HTML/CSS…), product names, URLs, emails, phone numbers, country codes, or personal names. These may stay in their original form embedded inside a ${languageName[targetLanguage]} sentence.
 - Preserve dates exactly (e.g. "Jan 2022 — Present").
 - Do NOT invent new facts. If the source is silent about something, leave it silent.
 - Keep the same array lengths and entry order as input.
