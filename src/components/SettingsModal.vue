@@ -9,6 +9,7 @@ const localModel = ref(store.settings.model)
 const localLang = ref<Language>(store.settings.language)
 const localMode = ref<Mode>(store.settings.mode)
 const localSelfCritique = ref<boolean>(store.settings.selfCritique !== false)
+const localQuantify = ref<boolean>(store.settings.quantify !== false)
 
 watch(
   () => store.settingsOpen,
@@ -19,6 +20,7 @@ watch(
       localLang.value = store.settings.language
       localMode.value = store.settings.mode
       localSelfCritique.value = store.settings.selfCritique !== false
+      localQuantify.value = store.settings.quantify !== false
     }
   }
 )
@@ -29,7 +31,8 @@ const save = () => {
     model: localModel.value.trim() || 'google/gemini-flash-1.5-8b',
     language: localLang.value,
     mode: localMode.value,
-    selfCritique: localSelfCritique.value
+    selfCritique: localSelfCritique.value,
+    quantify: localQuantify.value
   })
   store.closeSettings()
 }
@@ -111,6 +114,23 @@ const keyMasked = computed(() =>
               After rewriting, a senior-recruiter pass finds weaknesses and a
               refine pass applies them. Adds ~15-25s. If the refine would lower
               the ATS score, the original rewrite is kept automatically.
+            </span>
+          </span>
+        </label>
+
+        <label class="flex items-start gap-3 cursor-pointer select-none">
+          <input
+            v-model="localQuantify"
+            type="checkbox"
+            class="mt-1 h-4 w-4 rounded border-ink-300 text-accent-600 focus:ring-accent-500"
+          />
+          <span class="flex-1">
+            <span class="label block">Quantify with real numbers</span>
+            <span class="text-xs text-ink-500">
+              Inserts real numbers from your resume's facts (tenure from dates,
+              counts already stated in bullets) into the rewrite. Does NOT invent
+              percentages or KPIs. If the ATS score would drop, the original is
+              kept automatically.
             </span>
           </span>
         </label>
