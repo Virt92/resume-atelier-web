@@ -8,6 +8,7 @@ const localKey = ref(store.settings.falKey)
 const localModel = ref(store.settings.model)
 const localLang = ref<Language>(store.settings.language)
 const localMode = ref<Mode>(store.settings.mode)
+const localSelfCritique = ref<boolean>(store.settings.selfCritique !== false)
 
 watch(
   () => store.settingsOpen,
@@ -17,6 +18,7 @@ watch(
       localModel.value = store.settings.model
       localLang.value = store.settings.language
       localMode.value = store.settings.mode
+      localSelfCritique.value = store.settings.selfCritique !== false
     }
   }
 )
@@ -26,7 +28,8 @@ const save = () => {
     falKey: localKey.value.trim(),
     model: localModel.value.trim() || 'google/gemini-flash-1.5-8b',
     language: localLang.value,
-    mode: localMode.value
+    mode: localMode.value,
+    selfCritique: localSelfCritique.value
   })
   store.closeSettings()
 }
@@ -95,6 +98,22 @@ const keyMasked = computed(() =>
             </select>
           </div>
         </div>
+
+        <label class="flex items-start gap-3 cursor-pointer select-none">
+          <input
+            v-model="localSelfCritique"
+            type="checkbox"
+            class="mt-1 h-4 w-4 rounded border-ink-300 text-accent-600 focus:ring-accent-500"
+          />
+          <span class="flex-1">
+            <span class="label block">Self-critique loop</span>
+            <span class="text-xs text-ink-500">
+              After rewriting, a senior-recruiter pass finds weaknesses and a
+              refine pass applies them. Adds ~15-25s. If the refine would lower
+              the ATS score, the original rewrite is kept automatically.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div class="mt-6 flex justify-end gap-2">

@@ -6,12 +6,15 @@ import {
   extractFactsPrompt,
   gapAssistPrompt,
   mapEvidencePrompt,
+  refineRewritePrompt,
   rewritePrompt,
+  selfCritiquePrompt,
   translatePolishPrompt
 } from './prompts'
 import type {
   ATSAudit,
   ATSAuditBreakdown,
+  Critique,
   EvidenceMap,
   GapAssist,
   Language,
@@ -26,7 +29,11 @@ export interface PipelineContext {
   model: string
   language: Language
   mode: Mode
-  onProgress?: (stage: string, status: 'running' | 'done' | 'error', detail?: string) => void
+  onProgress?: (
+    stage: string,
+    status: 'running' | 'done' | 'error' | 'skipped',
+    detail?: string
+  ) => void
 }
 
 async function runStage<T>(
@@ -182,6 +189,85 @@ export async function rewriteResume(
     experience: raw.experience?.length ? raw.experience : facts.experience,
     changedSections: raw.changedSections ?? []
   }
+}
+
+/**
+ * Ask the LLM to critique its own rewrite from a senior recruiter's perspective.
+ * Returns structured issues the refine stage can act on.
+ */
+export async function selfCritique(
+  ctx: PipelineContext,
+  rewritten: RewrittenResume,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
+): Promise<Critique> {
+  const raw = await runStage<Partial<Critique>>(
+    ctx,
+    'self_critique',
+    selfCritiquePrompt(rewritten, vacancy, evidence, ctx.language),
+    { temperature: 0.2 }
+  )
+  return {
+    issues: Array.isArray(raw.issues) ? raw.issues : [],
+    missingKeywords: Array.isArray(raw.missingKeywords)
+      ? raw.missingKeywords
+      : [],
+    overclaims: Array.isArray(raw.overclaims) ? raw.overclaims : [],
+    generalTone: raw.generalTone
+  }
+}
+
+/**
+ * Re-run the rewriter with the critique attached. The refined rewrite is only
+ * kept if it scores at least as well as the original on the deterministic ATS
+ * rubric — otherwise we keep the original. This prevents the self-critique
+ * loop from ever making the result worse.
+ */
+export async function refineRewrite(
+  ctx: PipelineContext,
+  rewritten: RewrittenResume,
+  facts: ResumeFacts,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap,
+  critique: Critique
+): Promise<RewrittenResume> {
+  const hasActionableFeedback =
+    critique.issues.length > 0 ||
+    critique.missingKeywords.length > 0 ||
+    critique.overclaims.length > 0
+  if (!hasActionableFeedback) {
+    ctx.onProgress?.('refine_rewrite', 'skipped')
+    return rewritten
+  }
+  const raw = await runStage<Partial<RewrittenResume>>(
+    ctx,
+    'refine_rewrite',
+    refineRewritePrompt(rewritten, facts, vacancy, evidence, critique, ctx.language)
+  )
+  const refined: RewrittenResume = {
+    summary: raw.summary ?? rewritten.summary,
+    skills:
+      raw.skills && raw.skills.length
+        ? sanitizeSkills(raw.skills)
+        : rewritten.skills,
+    latestRoleBullets:
+      raw.latestRoleBullets && raw.latestRoleBullets.length
+        ? raw.latestRoleBullets
+        : rewritten.latestRoleBullets,
+    experience:
+      raw.experience && raw.experience.length
+        ? raw.experience
+        : rewritten.experience,
+    // Merge changedSections so users see both rewrite-level and refine-level edits.
+    changedSections: [
+      ...(rewritten.changedSections ?? []),
+      ...(raw.changedSections ?? [])
+    ]
+  }
+  // Safety gate: if refined scores worse on the deterministic rubric, keep original.
+  const before = deterministicAtsAudit(rewritten, facts, vacancy, evidence).score
+  const after = deterministicAtsAudit(refined, facts, vacancy, evidence).score
+  return after >= before ? refined : rewritten
 }
 
 export async function translateAndPolish(
