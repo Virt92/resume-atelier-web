@@ -66,7 +66,7 @@ export async function runPipeline(): Promise<void> {
       store.detectedLanguage !== store.settings.language
     if (needsTranslation) {
       try {
-        const polished = await translateAndPolish(ctx, facts, rewritten)
+        const polished = await translateAndPolish(ctx, facts, rewritten, vacancy, evidence)
         displayFacts = polished.facts
         displayRewritten = polished.rewritten
         store.localizedFacts = polished.facts

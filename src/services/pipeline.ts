@@ -171,7 +171,9 @@ export async function rewriteResume(
 export async function translateAndPolish(
   ctx: PipelineContext,
   facts: ResumeFacts,
-  rewritten: RewrittenResume
+  rewritten: RewrittenResume,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
 ): Promise<{ facts: ResumeFacts; rewritten: RewrittenResume }> {
   const raw = await runStage<{
     facts?: Partial<ResumeFacts>
@@ -247,7 +249,41 @@ export async function translateAndPolish(
     bulletsPolished,
     ctx.language
   )
-  return { facts: nextFacts, rewritten: skillsPolished }
+  // Final belt-and-suspenders sanitize: the LLM can still slip role titles
+  // ("Brand Designer", "SMM-manager") into translated skills. Re-run the
+  // rejection filter on the final list.
+  const finalSkills = sanitizeSkills(skillsPolished.skills)
+  // Fourth pass: if summary came back too short (2-3 sentences) from the
+  // translate_polish LLM, re-expand it. translate_polish sometimes condenses
+  // below our 4-5 sentence target.
+  let finalSummary = skillsPolished.summary
+  if (wordCount(finalSummary) < 60 || sentenceCount(finalSummary) < 4) {
+    try {
+      const { supportedKeywords, supportedTools } = computeSupportedKeywords(
+        vacancy,
+        evidence
+      )
+      finalSummary = await expandSummary(
+        ctx,
+        nextFacts,
+        vacancy,
+        supportedKeywords,
+        supportedTools,
+        finalSummary
+      )
+    } catch {
+      // non-fatal
+    }
+  }
+  return {
+    facts: nextFacts,
+    rewritten: { ...skillsPolished, skills: finalSkills, summary: finalSummary }
+  }
+}
+
+function sentenceCount(s: string | undefined | null): number {
+  if (!s) return 0
+  return s.split(/[.!?]+\s+/).filter((p) => p.trim().length > 0).length
 }
 
 function wordCount(s: string | undefined | null): number {
@@ -329,7 +365,7 @@ async function translateResidualBullets(
   if (collectJobs.length === 0) return rewritten
   try {
     const prompt = `
-Translate each of the following strings into ${target}. Keep brand / tool names (Figma, Jira, HTML/CSS, Ant Design, etc.) in the original form, but every other word must be in ${target}. Return strict JSON: { "translations": string[] } preserving input order, same length.
+Translate each of the following strings into ${target}. Keep brand / tool names (Figma, Jira, HTML/CSS, Ant Design, etc.) in the original form, but every other word MUST be in ${target}. Every output must contain at least one ${target} word. Return strict JSON: { "translations": string[] } preserving input order, same length (exactly ${collectJobs.length} items).
 
 Inputs:
 ${JSON.stringify(collectJobs.map((j) => j.value))}
@@ -338,11 +374,14 @@ ${JSON.stringify(collectJobs.map((j) => j.value))}
       apiKey: ctx.apiKey,
       model: ctx.model,
       systemPrompt: SYSTEM_PROMPT,
-      prompt
+      prompt,
+      temperature: 0
     })
     const parsed = extractJson<{ translations?: string[] }>(res.text)
     const out = parsed.translations ?? []
-    if (out.length !== collectJobs.length) return rewritten
+    // If array length mismatches, apply what we have (partial is better than
+    // giving up and keeping all bullets in English).
+    if (out.length === 0) return rewritten
     const experience = rewritten.experience.map((role) => ({
       ...role,
       bullets: [...role.bullets]
@@ -769,19 +808,28 @@ function computeSupportedKeywords(
 // belong in a skills array even when the LLM confuses them with skills.
 const ROLE_TITLE_PATTERNS: RegExp[] = [
   /\bdesigner\b/i,
+  /\bdesigners\b/i,
   /\bdeveloper\b/i,
+  /\bdevelopers\b/i,
   /\bengineer\b/i,
+  /\bengineers\b/i,
   /\barchitect\b/i,
   /\banalyst\b/i,
   /\bspecialist\b/i,
   /\bconsultant\b/i,
   /\bmanager\b/i,
+  /\bmanagers\b/i,
   /\bowner\b/i,
+  /\blead\b/i,
   /scrum master/i,
-  /smm[- ]?менеджер/i,
+  /smm[- ]?(менеджер|manager)/i,
   /дизайнер/i,
   /розробник/i,
-  /менеджер/i
+  /менеджер/i,
+  // Role-title compounds like "Brand Designer", "SMM-manager",
+  // "Graphic Designer", "Graphic Design" (skill collision) — the last word is
+  // a role noun. Treat any two-word phrase ending in a role noun as a title.
+  /\b(brand|graphic|product|visual|motion|web|ui|ux|ui\/ux|art|lead|senior|junior|middle)\s+(design|designer|manager|lead)\b/i
 ]
 
 export function sanitizeSkills(skills: string[]): string[] {
