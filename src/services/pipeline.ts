@@ -6,7 +6,8 @@ import {
   extractFactsPrompt,
   gapAssistPrompt,
   mapEvidencePrompt,
-  rewritePrompt
+  rewritePrompt,
+  translatePolishPrompt
 } from './prompts'
 import type {
   ATSAudit,
@@ -126,6 +127,132 @@ export async function rewriteResume(
         : facts.experience[0]?.bullets ?? [],
     experience: raw.experience?.length ? raw.experience : facts.experience,
     changedSections: raw.changedSections ?? []
+  }
+}
+
+export async function translateAndPolish(
+  ctx: PipelineContext,
+  facts: ResumeFacts,
+  rewritten: RewrittenResume
+): Promise<{ facts: ResumeFacts; rewritten: RewrittenResume }> {
+  const raw = await runStage<{
+    facts?: Partial<ResumeFacts>
+    rewritten?: Partial<RewrittenResume>
+  }>(
+    ctx,
+    'translate_polish',
+    translatePolishPrompt(facts, rewritten, ctx.language)
+  )
+  const nextFacts: ResumeFacts = {
+    name: raw.facts?.name ?? facts.name,
+    contacts: raw.facts?.contacts?.length ? raw.facts.contacts : facts.contacts,
+    summary: raw.facts?.summary ?? facts.summary,
+    experience: raw.facts?.experience?.length
+      ? raw.facts.experience.map((e, i) => ({
+          company: e.company || facts.experience[i]?.company || '',
+          role: e.role || facts.experience[i]?.role || '',
+          start: e.start || facts.experience[i]?.start || '',
+          end: e.end || facts.experience[i]?.end || '',
+          location: e.location ?? facts.experience[i]?.location,
+          bullets: e.bullets?.length ? e.bullets : facts.experience[i]?.bullets ?? []
+        }))
+      : facts.experience,
+    education: raw.facts?.education?.length ? raw.facts.education : facts.education,
+    skills: raw.facts?.skills?.length ? raw.facts.skills : facts.skills,
+    projects: raw.facts?.projects?.length ? raw.facts.projects : facts.projects,
+    certifications: raw.facts?.certifications?.length
+      ? raw.facts.certifications
+      : facts.certifications,
+    languages: raw.facts?.languages?.length ? raw.facts.languages : facts.languages,
+    inferredRole: raw.facts?.inferredRole ?? facts.inferredRole,
+    sourceLanguage: facts.sourceLanguage
+  }
+  const nextRewritten: RewrittenResume = {
+    summary: raw.rewritten?.summary ?? rewritten.summary,
+    skills: raw.rewritten?.skills?.length ? raw.rewritten.skills : rewritten.skills,
+    latestRoleBullets: raw.rewritten?.latestRoleBullets?.length
+      ? raw.rewritten.latestRoleBullets
+      : rewritten.latestRoleBullets,
+    experience: raw.rewritten?.experience?.length
+      ? raw.rewritten.experience.map((e, i) => ({
+          company: e.company || rewritten.experience[i]?.company || '',
+          role: e.role || rewritten.experience[i]?.role || '',
+          start: e.start || rewritten.experience[i]?.start || '',
+          end: e.end || rewritten.experience[i]?.end || '',
+          location: e.location ?? rewritten.experience[i]?.location,
+          bullets: e.bullets?.length
+            ? e.bullets
+            : rewritten.experience[i]?.bullets ?? []
+        }))
+      : rewritten.experience,
+    changedSections: rewritten.changedSections
+  }
+  return { facts: nextFacts, rewritten: nextRewritten }
+}
+
+/**
+ * Deterministic baseline ATS audit on the ORIGINAL resume (no LLM). We scan the
+ * raw resume text for vacancy keywords and reuse the same scoring rubric used
+ * for the adapted resume. This is what the user's resume would score *before*
+ * we touched it.
+ */
+export function baselineAtsAudit(
+  resumeText: string,
+  facts: ResumeFacts,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
+): ATSAudit {
+  const hay = resumeText.toLowerCase()
+  const contains = (phrase: string): boolean => {
+    const p = phrase.trim().toLowerCase()
+    if (!p) return false
+    // match whole-word-ish; for short tokens rely on substring
+    if (p.length <= 3) return hay.includes(p)
+    return hay.includes(p)
+  }
+
+  const mustHaveCovered = vacancy.mustHave.filter(contains).length
+  const toolsCovered = vacancy.tools.filter(contains).length
+
+  const languageRequirementsMet =
+    vacancy.languageRequirements.length === 0 ||
+    vacancy.languageRequirements.some((req) => contains(req))
+
+  const educationPresent = facts.education.length > 0
+
+  const unsupportedCount = (evidence.items ?? []).filter(
+    (i) => i.support === 'unsupported'
+  ).length
+
+  const keywords = Array.from(
+    new Set([...vacancy.mustHave, ...vacancy.tools])
+  ).slice(0, 30)
+  const keywordCoverage = keywords.map((keyword) => ({
+    keyword,
+    present: contains(keyword)
+  }))
+
+  const reconciled = reconcileAtsScore(
+    {
+      mustHaveCovered,
+      mustHaveTotal: vacancy.mustHave.length,
+      toolsCovered,
+      toolsTotal: vacancy.tools.length,
+      languageRequirementsMet,
+      educationPresent,
+      yearsMeetsOrExceeds: true,
+      unsupportedCount,
+      penalties: []
+    },
+    undefined,
+    vacancy,
+    evidence
+  )
+  return {
+    score: reconciled.score,
+    warnings: [],
+    keywordCoverage,
+    breakdown: reconciled.breakdown
   }
 }
 

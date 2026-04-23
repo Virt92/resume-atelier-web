@@ -14,43 +14,74 @@ import {
   UnderlineType
 } from 'docx'
 import { saveAs } from 'file-saver'
-import type { ResumeFacts, RewrittenResume } from '../types'
+import type { ResumeFacts, RewrittenResume, ThemeTokens } from '../types'
+import { getTheme } from './themes'
 
-const COLOR_INK = '1c2030'
-const COLOR_MUTED = '5a6172'
-const COLOR_ACCENT = '4b17b4'
-const FONT_BODY = 'Calibri'
-const FONT_HEADING = 'Calibri'
+const FONT_BODY_SANS = 'Calibri'
+const FONT_BODY_SERIF = 'Cambria'
+const FONT_HEADING_DISPLAY = 'Calibri'
+const FONT_HEADING_SANS = 'Calibri'
 const BODY_SIZE = 22 // half-points => 11pt
 const SMALL_SIZE = 20 // 10pt
 const NAME_SIZE = 40 // 20pt
 const SECTION_HEADING_SIZE = 22 // 11pt (bold + uppercase)
 
-function sectionHeading(text: string): Paragraph {
+interface ThemeCtx {
+  ink: string
+  muted: string
+  accent: string
+  fontBody: string
+  fontHeading: string
+  headingUpper: boolean
+  rule: ThemeTokens['ruleStyle']
+}
+
+function ctxFromTheme(t: ThemeTokens): ThemeCtx {
+  return {
+    ink: t.ink,
+    muted: t.muted,
+    accent: t.accent,
+    fontBody: t.bodyFont === 'serif' ? FONT_BODY_SERIF : FONT_BODY_SANS,
+    fontHeading:
+      t.headingFont === 'display' ? FONT_HEADING_DISPLAY : FONT_HEADING_SANS,
+    headingUpper: t.headingCase === 'upper',
+    rule: t.ruleStyle
+  }
+}
+
+function sectionHeading(text: string, c: ThemeCtx): Paragraph {
+  const border =
+    c.rule === 'none'
+      ? undefined
+      : {
+          bottom: {
+            color: c.accent,
+            size: c.rule === 'bar' ? 8 : 4,
+            style: c.rule === 'dot' ? BorderStyle.DOTTED : BorderStyle.SINGLE,
+            space: 2
+          }
+        }
   return new Paragraph({
     spacing: { before: 280, after: 120 },
-    border: {
-      bottom: {
-        color: COLOR_ACCENT,
-        size: 6,
-        style: BorderStyle.SINGLE,
-        space: 2
-      }
-    },
+    ...(border ? { border } : {}),
     children: [
       new TextRun({
-        text: text.toUpperCase(),
+        text: c.headingUpper ? text.toUpperCase() : text,
         bold: true,
-        font: FONT_HEADING,
+        font: c.fontHeading,
         size: SECTION_HEADING_SIZE,
-        characterSpacing: 40,
-        color: COLOR_ACCENT
+        characterSpacing: c.headingUpper ? 40 : 0,
+        color: c.accent
       })
     ]
   })
 }
 
-function body(text: string, opts: { bold?: boolean; italics?: boolean; color?: string } = {}): Paragraph {
+function body(
+  text: string,
+  c: ThemeCtx,
+  opts: { bold?: boolean; italics?: boolean; color?: string } = {}
+): Paragraph {
   return new Paragraph({
     spacing: { after: 80, line: 300 },
     children: [
@@ -58,20 +89,20 @@ function body(text: string, opts: { bold?: boolean; italics?: boolean; color?: s
         text,
         bold: opts.bold,
         italics: opts.italics,
-        font: FONT_BODY,
+        font: c.fontBody,
         size: BODY_SIZE,
-        color: opts.color ?? COLOR_INK
+        color: opts.color ?? c.ink
       })
     ]
   })
 }
 
-function bullet(text: string): Paragraph {
+function bullet(text: string, c: ThemeCtx): Paragraph {
   return new Paragraph({
     numbering: { reference: 'atelier-bullets', level: 0 },
     spacing: { after: 60, line: 300 },
     children: [
-      new TextRun({ text, font: FONT_BODY, size: BODY_SIZE, color: COLOR_INK })
+      new TextRun({ text, font: c.fontBody, size: BODY_SIZE, color: c.ink })
     ]
   })
 }
@@ -79,8 +110,10 @@ function bullet(text: string): Paragraph {
 export async function buildAdaptedDocx(
   facts: ResumeFacts,
   rewritten: RewrittenResume,
-  fileName = 'resume-adapted.docx'
+  fileName = 'resume-adapted.docx',
+  theme?: ThemeTokens
 ): Promise<Blob> {
+  const c = ctxFromTheme(theme ?? getTheme('classic'))
   const children: Paragraph[] = []
 
   if (facts.name) {
@@ -92,9 +125,9 @@ export async function buildAdaptedDocx(
           new TextRun({
             text: facts.name,
             bold: true,
-            font: FONT_HEADING,
+            font: c.fontHeading,
             size: NAME_SIZE,
-            color: COLOR_INK
+            color: c.ink
           })
         ]
       })
@@ -111,9 +144,9 @@ export async function buildAdaptedDocx(
           children: [
             new TextRun({
               text: role,
-              font: FONT_BODY,
+              font: c.fontBody,
               size: SMALL_SIZE,
-              color: COLOR_ACCENT,
+              color: c.accent,
               bold: true,
               characterSpacing: 30
             })
@@ -131,9 +164,9 @@ export async function buildAdaptedDocx(
         children: [
           new TextRun({
             text: facts.contacts.join('  ·  '),
-            font: FONT_BODY,
+            font: c.fontBody,
             size: SMALL_SIZE,
-            color: COLOR_MUTED
+            color: c.muted
           })
         ]
       })
@@ -141,12 +174,12 @@ export async function buildAdaptedDocx(
   }
 
   if (rewritten.summary) {
-    children.push(sectionHeading('Summary'))
-    children.push(body(rewritten.summary))
+    children.push(sectionHeading('Summary', c))
+    children.push(body(rewritten.summary, c))
   }
 
   if (rewritten.skills.length) {
-    children.push(sectionHeading('Skills'))
+    children.push(sectionHeading('Skills', c))
     // Two-column layout via tab stops (readable, not overloaded)
     const skills = rewritten.skills.filter(Boolean)
     const midpoint = Math.ceil(skills.length / 2)
@@ -165,32 +198,32 @@ export async function buildAdaptedDocx(
               ? [
                   new TextRun({
                     text: '•  ',
-                    font: FONT_BODY,
+                    font: c.fontBody,
                     size: BODY_SIZE,
-                    color: COLOR_ACCENT
+                    color: c.accent
                   }),
                   new TextRun({
                     text: left,
-                    font: FONT_BODY,
+                    font: c.fontBody,
                     size: BODY_SIZE,
-                    color: COLOR_INK
+                    color: c.ink
                   })
                 ]
               : []),
             ...(right
               ? [
-                  new TextRun({ text: '\t', font: FONT_BODY, size: BODY_SIZE }),
+                  new TextRun({ text: '\t', font: c.fontBody, size: BODY_SIZE }),
                   new TextRun({
                     text: '•  ',
-                    font: FONT_BODY,
+                    font: c.fontBody,
                     size: BODY_SIZE,
-                    color: COLOR_ACCENT
+                    color: c.accent
                   }),
                   new TextRun({
                     text: right,
-                    font: FONT_BODY,
+                    font: c.fontBody,
                     size: BODY_SIZE,
-                    color: COLOR_INK
+                    color: c.ink
                   })
                 ]
               : [])
@@ -202,7 +235,7 @@ export async function buildAdaptedDocx(
 
   const exp = rewritten.experience.length ? rewritten.experience : facts.experience
   if (exp.length) {
-    children.push(sectionHeading('Experience'))
+    children.push(sectionHeading('Experience', c))
     exp.forEach((e, idx) => {
       children.push(
         new Paragraph({
@@ -212,23 +245,23 @@ export async function buildAdaptedDocx(
             new TextRun({
               text: e.role,
               bold: true,
-              font: FONT_HEADING,
+              font: c.fontHeading,
               size: BODY_SIZE,
-              color: COLOR_INK
+              color: c.ink
             }),
             new TextRun({
               text: `  ·  ${e.company}`,
-              font: FONT_HEADING,
+              font: c.fontHeading,
               size: BODY_SIZE,
-              color: COLOR_INK
+              color: c.ink
             }),
-            new TextRun({ text: '\t', font: FONT_BODY, size: BODY_SIZE }),
+            new TextRun({ text: '\t', font: c.fontBody, size: BODY_SIZE }),
             new TextRun({
               text: [e.start, e.end].filter(Boolean).join(' — '),
               italics: true,
-              font: FONT_BODY,
+              font: c.fontBody,
               size: SMALL_SIZE,
-              color: COLOR_MUTED
+              color: c.muted
             })
           ]
         })
@@ -241,9 +274,9 @@ export async function buildAdaptedDocx(
               new TextRun({
                 text: e.location,
                 italics: true,
-                font: FONT_BODY,
+                font: c.fontBody,
                 size: SMALL_SIZE,
-                color: COLOR_MUTED
+                color: c.muted
               })
             ]
           })
@@ -253,12 +286,12 @@ export async function buildAdaptedDocx(
         idx === 0 && rewritten.latestRoleBullets.length
           ? rewritten.latestRoleBullets
           : e.bullets
-      bullets.filter(Boolean).forEach((b) => children.push(bullet(b)))
+      bullets.filter(Boolean).forEach((b) => children.push(bullet(b, c)))
     })
   }
 
   if (facts.education.length) {
-    children.push(sectionHeading('Education'))
+    children.push(sectionHeading('Education', c))
     facts.education.forEach((e) => {
       const parts = [e.degree, e.institution].filter(Boolean).join(' — ')
       const dates = [e.start, e.end].filter(Boolean).join(' — ')
@@ -270,19 +303,19 @@ export async function buildAdaptedDocx(
             new TextRun({
               text: parts,
               bold: true,
-              font: FONT_HEADING,
+              font: c.fontHeading,
               size: BODY_SIZE,
-              color: COLOR_INK
+              color: c.ink
             }),
             ...(dates
               ? [
-                  new TextRun({ text: '\t', font: FONT_BODY, size: BODY_SIZE }),
+                  new TextRun({ text: '\t', font: c.fontBody, size: BODY_SIZE }),
                   new TextRun({
                     text: dates,
                     italics: true,
-                    font: FONT_BODY,
+                    font: c.fontBody,
                     size: SMALL_SIZE,
-                    color: COLOR_MUTED
+                    color: c.muted
                   })
                 ]
               : [])
@@ -290,27 +323,27 @@ export async function buildAdaptedDocx(
         })
       )
       if (e.details) {
-        children.push(body(e.details, { italics: true, color: COLOR_MUTED }))
+        children.push(body(e.details, c, { italics: true, color: c.muted }))
       }
     })
   }
 
   if (facts.projects.length) {
-    children.push(sectionHeading('Projects'))
+    children.push(sectionHeading('Projects', c))
     facts.projects.forEach((p) => {
-      children.push(body(p.title, { bold: true }))
-      if (p.description) children.push(body(p.description))
+      children.push(body(p.title, c, { bold: true }))
+      if (p.description) children.push(body(p.description, c))
     })
   }
 
   if (facts.languages.length) {
-    children.push(sectionHeading('Languages'))
-    children.push(body(facts.languages.join('   ·   ')))
+    children.push(sectionHeading('Languages', c))
+    children.push(body(facts.languages.join('   ·   '), c))
   }
 
   if (facts.certifications.length) {
-    children.push(sectionHeading('Certifications'))
-    facts.certifications.forEach((c) => children.push(bullet(c)))
+    children.push(sectionHeading('Certifications', c))
+    facts.certifications.forEach((cert) => children.push(bullet(cert, c)))
   }
 
   const doc = new Document({
@@ -320,7 +353,7 @@ export async function buildAdaptedDocx(
     styles: {
       default: {
         document: {
-          run: { font: FONT_BODY, size: BODY_SIZE, color: COLOR_INK }
+          run: { font: c.fontBody, size: BODY_SIZE, color: c.ink }
         }
       }
     },
@@ -336,7 +369,7 @@ export async function buildAdaptedDocx(
               alignment: AlignmentType.LEFT,
               style: {
                 paragraph: { indent: { left: 360, hanging: 220 } },
-                run: { color: COLOR_ACCENT, bold: true }
+                run: { color: c.accent, bold: true }
               }
             }
           ]
@@ -366,9 +399,9 @@ export async function buildAdaptedDocx(
                     children: facts.name
                       ? [`${facts.name}  ·  Page `, PageNumber.CURRENT]
                       : ['Page ', PageNumber.CURRENT],
-                    font: FONT_BODY,
+                    font: c.fontBody,
                     size: 18,
-                    color: COLOR_MUTED
+                    color: c.muted
                   })
                 ]
               })

@@ -10,6 +10,7 @@ import type {
   Settings,
   StageId,
   StageState,
+  ThemeId,
   VacancyAnalysis
 } from '../types'
 import { getDefaultKey, getDefaultModel } from '../services/falClient'
@@ -21,7 +22,8 @@ function loadSettings(): Settings {
     falKey: getDefaultKey(),
     model: getDefaultModel(),
     language: 'English',
-    mode: 'standard'
+    mode: 'standard',
+    theme: 'classic'
   }
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -31,7 +33,8 @@ function loadSettings(): Settings {
       falKey: parsed.falKey || defaults.falKey,
       model: parsed.model || defaults.model,
       language: (parsed.language as Language) || defaults.language,
-      mode: (parsed.mode as Mode) || defaults.mode
+      mode: (parsed.mode as Mode) || defaults.mode,
+      theme: (parsed.theme as ThemeId) || defaults.theme
     }
   } catch {
     return defaults
@@ -40,11 +43,12 @@ function loadSettings(): Settings {
 
 const initialStages: StageState[] = [
   { id: 'upload', label: 'Upload', status: 'pending' },
-  { id: 'parse', label: 'Parse DOCX', status: 'pending' },
+  { id: 'parse', label: 'Parse resume', status: 'pending' },
   { id: 'extract_facts', label: 'Extract resume facts', status: 'pending' },
   { id: 'analyze_vacancy', label: 'Analyze vacancy', status: 'pending' },
   { id: 'map_evidence', label: 'Map evidence', status: 'pending' },
   { id: 'rewrite', label: 'Rewrite sections', status: 'pending' },
+  { id: 'translate_polish', label: 'Translate & polish', status: 'pending' },
   { id: 'ats_audit', label: 'ATS audit', status: 'pending' },
   { id: 'gap_assist', label: 'Gap assist', status: 'pending' }
 ]
@@ -68,9 +72,11 @@ export const useSessionStore = defineStore('session', {
     error: '' as string,
 
     facts: null as ResumeFacts | null,
+    localizedFacts: null as ResumeFacts | null,
     vacancy: null as VacancyAnalysis | null,
     evidence: null as EvidenceMap | null,
     rewritten: null as RewrittenResume | null,
+    baselineAudit: null as ATSAudit | null,
     audit: null as ATSAudit | null,
     gap: null as GapAssist | null,
 
@@ -110,9 +116,11 @@ export const useSessionStore = defineStore('session', {
     resetPipeline() {
       this.stages = initialStages.map((s) => ({ ...s }))
       this.facts = null
+      this.localizedFacts = null
       this.vacancy = null
       this.evidence = null
       this.rewritten = null
+      this.baselineAudit = null
       this.audit = null
       this.gap = null
       this.error = ''

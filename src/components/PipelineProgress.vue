@@ -33,6 +33,7 @@ const store = useSessionStore()
         >
           <template v-if="stage.status === 'done'">✓</template>
           <template v-else-if="stage.status === 'error'">!</template>
+          <template v-else-if="stage.status === 'skipped'">–</template>
           <template v-else>·</template>
         </span>
         <span

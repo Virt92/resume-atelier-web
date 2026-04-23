@@ -220,5 +220,62 @@ Evidence map JSON:
 ${JSON.stringify(evidence)}
 `.trim()
 
+export const translatePolishPrompt = (
+  facts: unknown,
+  rewritten: unknown,
+  targetLanguage: Language
+) => `
+You are a bilingual resume editor and translator. Translate and polish the resume below so that EVERY visible text field reads fluently and naturally in ${languageName[targetLanguage]}. Keep proper names, company names, and brand/tool names in their original form.
+
+Return strict JSON matching this shape EXACTLY:
+
+{
+  "facts": {
+    "name": string | null,
+    "contacts": string[],
+    "summary": string | null,
+    "experience": [
+      { "company": string, "role": string, "start": string, "end": string, "location": string | null, "bullets": string[] }
+    ],
+    "education": [
+      { "institution": string, "degree": string, "start": string | null, "end": string | null, "details": string | null }
+    ],
+    "skills": string[],
+    "projects": [{ "title": string, "description": string }],
+    "certifications": string[],
+    "languages": string[],
+    "inferredRole": string | null
+  },
+  "rewritten": {
+    "summary": string,
+    "skills": string[],
+    "latestRoleBullets": string[],
+    "experience": [
+      { "company": string, "role": string, "start": string, "end": string, "location": string | null, "bullets": string[] }
+    ],
+    "changedSections": [
+      { "section": string, "before": string, "after": string }
+    ]
+  }
+}
+
+Rules:
+- Translate ALL narrative text (summary, bullets, role titles if meaningful words, skills labels, education degree labels, project descriptions) into ${languageName[targetLanguage]}.
+- DO NOT translate: company brand names, tool names (Figma, Jira, AWS…), product names, URLs, emails, phone numbers, country codes, or personal names.
+- Preserve dates exactly (e.g. "Jan 2022 — Present").
+- Do NOT invent new facts. If the source is silent about something, leave it silent.
+- Keep the same array lengths and entry order as input.
+- Polish phrasing so it reads like a native ${languageName[targetLanguage]} resume, not a literal translation.
+- Fix any grammar or awkward phrasing introduced by the rewrite.
+- latestRoleBullets must correspond to the first experience entry's bullets after translation.
+- Output MUST be valid JSON, no prose, no code fences.
+
+Source facts JSON:
+${JSON.stringify(facts)}
+
+Adapted (possibly partially translated) JSON:
+${JSON.stringify(rewritten)}
+`.trim()
+
 export const SYSTEM_PROMPT =
   'You are an ATS-aware resume adaptation assistant. You follow instructions precisely and respond with strict JSON when asked. You never invent facts about the candidate.'

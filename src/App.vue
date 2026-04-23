@@ -89,8 +89,16 @@ async function start() {
               Review the changes, then download DOCX or save as PDF.
             </p>
           </div>
-          <button class="btn-secondary" @click="store.resetPipeline(); store.resumeFile = null; store.resumeText = ''; store.vacancyText = ''">
-            Start over
+          <button
+            class="btn-secondary inline-flex items-center gap-1.5"
+            title="Discard current result and start a new adaptation from scratch"
+            @click="store.resetPipeline(); store.resumeFile = null; store.resumeText = ''; store.vacancyText = ''"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 3-6.7" />
+              <path d="M3 4v5h5" />
+            </svg>
+            New adaptation
           </button>
         </div>
         <ResultView />

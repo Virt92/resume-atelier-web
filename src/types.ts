@@ -1,11 +1,31 @@
 export type Language = 'English' | 'Ukrainian' | 'Russian'
 export type Mode = 'standard' | 'safe' | 'aggressive' | 'adapt_safely'
+export type ThemeId =
+  | 'classic'
+  | 'modern-blue'
+  | 'minimal-mono'
+  | 'warm-terracotta'
+  | 'emerald'
+  | 'plum-noir'
+
+export interface ThemeTokens {
+  id: ThemeId
+  label: string
+  ink: string        // primary text color (hex, no #)
+  muted: string      // secondary text
+  accent: string     // accent color (headings, rules)
+  ruleStyle: 'underline' | 'bar' | 'dot' | 'none'
+  headingCase: 'upper' | 'title'
+  headingFont: 'display' | 'sans'
+  bodyFont: 'sans' | 'serif'
+}
 
 export interface Settings {
   falKey: string
   model: string
   language: Language
   mode: Mode
+  theme: ThemeId
 }
 
 export interface ExperienceItem {
@@ -110,6 +130,7 @@ export type StageId =
   | 'analyze_vacancy'
   | 'map_evidence'
   | 'rewrite'
+  | 'translate_polish'
   | 'ats_audit'
   | 'gap_assist'
   | 'done'
