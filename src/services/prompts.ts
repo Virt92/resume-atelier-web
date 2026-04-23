@@ -104,7 +104,8 @@ export const rewritePrompt = (
   language: Language,
   mode: Mode,
   supportedKeywords: string[],
-  supportedTools: string[]
+  supportedTools: string[],
+  archetypeGuidance?: string
 ) => {
   const modeHint: Record<Mode, string> = {
     standard: 'Balanced adaptation: uplift wording, keep tone, preserve truth.',
@@ -148,7 +149,7 @@ Hard constraints:
 - "latestRoleBullets" is the rewritten bullet list for the FIRST experience entry; mirror it into experience[0].bullets.
 - Leave bullets of non-latest roles unchanged (same text, just translated into the target language).
 
-### MANDATORY KEYWORDS (supported by evidence — direct or indirect)
+${archetypeGuidance ? archetypeGuidance + '\n\n' : ''}### MANDATORY KEYWORDS (supported by evidence — direct or indirect)
 
 These phrases MUST each appear (verbatim or near-verbatim, adapted to target
 language) somewhere in {summary + skills + latestRoleBullets} taken together.
@@ -344,7 +345,8 @@ export const refineRewritePrompt = (
   vacancy: unknown,
   evidence: unknown,
   critique: unknown,
-  language: Language
+  language: Language,
+  archetypeGuidance?: string
 ) => `
 You are the same rewriter that produced the resume below. A senior recruiter
 critiqued it. Your task is to apply EVERY actionable fix from the critique while
@@ -374,7 +376,7 @@ Rules:
 - Update "changedSections" to reflect the refinement: for every field you actually changed, add one { section, before, after } entry (before = text from the input rewritten, after = your new text).
 - Summary must remain 4-5 sentences, 60-110 words.
 - Skills array must NOT contain role/job titles.
-
+${archetypeGuidance ? '\n' + archetypeGuidance + '\n' : ''}
 Previous rewritten JSON:
 ${JSON.stringify(rewritten)}
 

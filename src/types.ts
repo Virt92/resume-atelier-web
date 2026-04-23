@@ -28,6 +28,7 @@ export interface Settings {
   theme: ThemeId
   selfCritique?: boolean
   quantify?: boolean
+  roleSpecific?: boolean
 }
 
 export interface ExperienceItem {
