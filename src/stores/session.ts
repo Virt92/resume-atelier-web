@@ -25,7 +25,8 @@ function loadSettings(): Settings {
     language: 'English',
     mode: 'standard',
     theme: 'classic',
-    selfCritique: true
+    selfCritique: true,
+    quantify: true
   }
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -44,7 +45,11 @@ function loadSettings(): Settings {
       selfCritique:
         typeof parsed.selfCritique === 'boolean'
           ? parsed.selfCritique
-          : defaults.selfCritique
+          : defaults.selfCritique,
+      quantify:
+        typeof parsed.quantify === 'boolean'
+          ? parsed.quantify
+          : defaults.quantify
     }
   } catch {
     return defaults
@@ -58,6 +63,7 @@ const initialStages: StageState[] = [
   { id: 'analyze_vacancy', label: 'Analyze vacancy', status: 'pending' },
   { id: 'map_evidence', label: 'Map evidence', status: 'pending' },
   { id: 'rewrite', label: 'Rewrite sections', status: 'pending' },
+  { id: 'quantify', label: 'Quantify with real numbers', status: 'pending' },
   { id: 'self_critique', label: 'Self-critique', status: 'pending' },
   { id: 'refine_rewrite', label: 'Refine', status: 'pending' },
   { id: 'translate_polish', label: 'Translate & polish', status: 'pending' },

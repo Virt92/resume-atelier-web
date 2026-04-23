@@ -5,6 +5,7 @@ import {
   extractResumeFacts,
   gapAssist,
   mapEvidence,
+  quantifyRewrite,
   refineRewrite,
   rewriteResume,
   selfCritique,
@@ -58,6 +59,22 @@ export async function runPipeline(): Promise<void> {
 
     let rewritten = await rewriteResume(ctx, facts, vacancy, evidence)
     store.rewritten = rewritten
+
+    // Quantification pass: insert real numbers from facts into the rewrite.
+    // Runs between rewrite and self-critique. Skippable via settings.quantify
+    // (default ON). Non-fatal on failure; protected by a fabrication guard
+    // and an ATS safety gate inside quantifyRewrite.
+    const quantifyEnabled = store.settings.quantify !== false
+    if (quantifyEnabled) {
+      try {
+        rewritten = await quantifyRewrite(ctx, rewritten, facts, vacancy, evidence)
+        store.rewritten = rewritten
+      } catch {
+        // non-fatal; keep the pre-quantify rewrite
+      }
+    } else {
+      store.markStage('quantify', 'skipped')
+    }
 
     // Self-critique + refine loop: a senior-recruiter pass that finds concrete
     // weaknesses, then a refine pass that applies those fixes. Both stages are

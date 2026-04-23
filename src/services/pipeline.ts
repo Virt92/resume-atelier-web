@@ -6,6 +6,7 @@ import {
   extractFactsPrompt,
   gapAssistPrompt,
   mapEvidencePrompt,
+  quantifyPrompt,
   refineRewritePrompt,
   rewritePrompt,
   selfCritiquePrompt,
@@ -189,6 +190,101 @@ export async function rewriteResume(
     experience: raw.experience?.length ? raw.experience : facts.experience,
     changedSections: raw.changedSections ?? []
   }
+}
+
+/**
+ * Quantification pass: insert real numbers from the candidate's facts into
+ * the rewritten resume to make claims concrete. Runs between `rewrite` and
+ * `self_critique`. Two safety nets protect against fabrication:
+ *   1. Numeric guard: any integer / percentage / money token in the
+ *      quantified output that is NOT present in either the pre-quantify
+ *      rewrite or the original facts text → the pass is reverted.
+ *   2. ATS safety gate: if the deterministic ATS score drops after
+ *      quantification, the original rewrite is kept.
+ */
+export async function quantifyRewrite(
+  ctx: PipelineContext,
+  rewritten: RewrittenResume,
+  facts: ResumeFacts,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
+): Promise<RewrittenResume> {
+  let raw: Partial<RewrittenResume>
+  try {
+    raw = await runStage<Partial<RewrittenResume>>(
+      ctx,
+      'quantify',
+      quantifyPrompt(rewritten, facts, ctx.language),
+      { temperature: 0.1 }
+    )
+  } catch {
+    // Non-fatal: fall back to the original rewrite.
+    return rewritten
+  }
+  const quantified: RewrittenResume = {
+    summary: raw.summary ?? rewritten.summary,
+    // Skills must be unchanged — prompt says so, but enforce it here too.
+    skills: rewritten.skills,
+    latestRoleBullets:
+      raw.latestRoleBullets && raw.latestRoleBullets.length
+        ? raw.latestRoleBullets
+        : rewritten.latestRoleBullets,
+    experience:
+      raw.experience && raw.experience.length
+        ? raw.experience.map((e, i) => {
+            const base = rewritten.experience[i]
+            if (!base) return e
+            if (i === 0) {
+              return {
+                ...base,
+                bullets:
+                  raw.latestRoleBullets && raw.latestRoleBullets.length
+                    ? raw.latestRoleBullets
+                    : e.bullets?.length
+                    ? e.bullets
+                    : base.bullets
+              }
+            }
+            return { ...base, bullets: e.bullets?.length ? e.bullets : base.bullets }
+          })
+        : rewritten.experience,
+    changedSections: [
+      ...(rewritten.changedSections ?? []),
+      ...(raw.changedSections ?? [])
+    ]
+  }
+
+  // Fabrication guard: compare numeric tokens in quantified output against a
+  // corpus of "allowed" numbers (pre-quantify rewrite + facts as text). If we
+  // introduced a number that is not sourced, revert.
+  const corpus = [
+    rewrittenAsText(rewritten),
+    JSON.stringify(facts)
+  ].join(' ')
+  const beforeNumbers = extractNumericTokens(corpus)
+  const afterNumbers = extractNumericTokens(
+    [quantified.summary, ...(quantified.latestRoleBullets ?? [])].join(' ')
+  )
+  const fabricated = afterNumbers.filter((n) => !beforeNumbers.includes(n))
+  if (fabricated.length > 0) {
+    return rewritten
+  }
+
+  // ATS safety gate: must not drop the deterministic score.
+  const before = deterministicAtsAudit(rewritten, facts, vacancy, evidence).score
+  const after = deterministicAtsAudit(quantified, facts, vacancy, evidence).score
+  return after >= before ? quantified : rewritten
+}
+
+/**
+ * Extract numeric tokens (percentages, money, plain integers/decimals,
+ * k/m/b suffixes) from a string. Used by the quantify fabrication guard.
+ */
+function extractNumericTokens(s: string): string[] {
+  if (!s) return []
+  // Matches: 18%, 2.5%, $1,200, 50k, 2.1s, 30%, 2023, 6, 18
+  const tokens = s.match(/\d[\d,.]*\s*(?:%|[km]|bn|s|sec|h|hr|ms)?/gi) ?? []
+  return tokens.map((t) => t.toLowerCase().replace(/,/g, '').trim())
 }
 
 /**

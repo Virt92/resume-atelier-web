@@ -27,6 +27,7 @@ export interface Settings {
   mode: Mode
   theme: ThemeId
   selfCritique?: boolean
+  quantify?: boolean
 }
 
 export interface ExperienceItem {
@@ -131,6 +132,7 @@ export type StageId =
   | 'analyze_vacancy'
   | 'map_evidence'
   | 'rewrite'
+  | 'quantify'
   | 'self_critique'
   | 'refine_rewrite'
   | 'translate_polish'
