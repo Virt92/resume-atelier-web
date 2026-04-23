@@ -15,6 +15,7 @@ import type {
   VacancyAnalysis
 } from '../types'
 import { getDefaultKey, getDefaultModel } from '../services/falClient'
+import type { RoleArchetype } from '../services/roleArchetype'
 
 const SETTINGS_KEY = 'resume-atelier:settings'
 
@@ -26,7 +27,8 @@ function loadSettings(): Settings {
     mode: 'standard',
     theme: 'classic',
     selfCritique: true,
-    quantify: true
+    quantify: true,
+    roleSpecific: true
   }
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -49,7 +51,11 @@ function loadSettings(): Settings {
       quantify:
         typeof parsed.quantify === 'boolean'
           ? parsed.quantify
-          : defaults.quantify
+          : defaults.quantify,
+      roleSpecific:
+        typeof parsed.roleSpecific === 'boolean'
+          ? parsed.roleSpecific
+          : defaults.roleSpecific
     }
   } catch {
     return defaults
@@ -98,6 +104,7 @@ export const useSessionStore = defineStore('session', {
     baselineAudit: null as ATSAudit | null,
     audit: null as ATSAudit | null,
     gap: null as GapAssist | null,
+    roleArchetype: null as RoleArchetype | null,
 
     isDone: false as boolean
   }),
@@ -143,6 +150,7 @@ export const useSessionStore = defineStore('session', {
       this.baselineAudit = null
       this.audit = null
       this.gap = null
+      this.roleArchetype = null
       this.error = ''
       this.isDone = false
       this.isRunning = false

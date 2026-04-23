@@ -24,6 +24,7 @@ import type {
   RewrittenResume,
   VacancyAnalysis
 } from '../types'
+import { archetypeGuidanceBlock, type RoleArchetype } from './roleArchetype'
 
 export interface PipelineContext {
   apiKey: string
@@ -137,12 +138,14 @@ export async function rewriteResume(
   ctx: PipelineContext,
   facts: ResumeFacts,
   vacancy: VacancyAnalysis,
-  evidence: EvidenceMap
+  evidence: EvidenceMap,
+  archetype?: RoleArchetype
 ): Promise<RewrittenResume> {
   const { supportedKeywords, supportedTools } = computeSupportedKeywords(
     vacancy,
     evidence
   )
+  const guidance = archetype ? archetypeGuidanceBlock(archetype) : undefined
   const raw = await runStage<Partial<RewrittenResume>>(
     ctx,
     'rewrite',
@@ -153,7 +156,8 @@ export async function rewriteResume(
       ctx.language,
       ctx.mode,
       supportedKeywords,
-      supportedTools
+      supportedTools,
+      guidance
     )
   )
   // Always build skills as sanitize(raw.skills ∪ facts.skills ∪ supportedTools).
@@ -325,7 +329,8 @@ export async function refineRewrite(
   facts: ResumeFacts,
   vacancy: VacancyAnalysis,
   evidence: EvidenceMap,
-  critique: Critique
+  critique: Critique,
+  archetype?: RoleArchetype
 ): Promise<RewrittenResume> {
   const hasActionableFeedback =
     critique.issues.length > 0 ||
@@ -335,10 +340,19 @@ export async function refineRewrite(
     ctx.onProgress?.('refine_rewrite', 'skipped')
     return rewritten
   }
+  const guidance = archetype ? archetypeGuidanceBlock(archetype) : undefined
   const raw = await runStage<Partial<RewrittenResume>>(
     ctx,
     'refine_rewrite',
-    refineRewritePrompt(rewritten, facts, vacancy, evidence, critique, ctx.language)
+    refineRewritePrompt(
+      rewritten,
+      facts,
+      vacancy,
+      evidence,
+      critique,
+      ctx.language,
+      guidance
+    )
   )
   const refined: RewrittenResume = {
     summary: raw.summary ?? rewritten.summary,

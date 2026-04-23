@@ -10,6 +10,7 @@ const localLang = ref<Language>(store.settings.language)
 const localMode = ref<Mode>(store.settings.mode)
 const localSelfCritique = ref<boolean>(store.settings.selfCritique !== false)
 const localQuantify = ref<boolean>(store.settings.quantify !== false)
+const localRoleSpecific = ref<boolean>(store.settings.roleSpecific !== false)
 
 watch(
   () => store.settingsOpen,
@@ -21,6 +22,7 @@ watch(
       localMode.value = store.settings.mode
       localSelfCritique.value = store.settings.selfCritique !== false
       localQuantify.value = store.settings.quantify !== false
+      localRoleSpecific.value = store.settings.roleSpecific !== false
     }
   }
 )
@@ -32,7 +34,8 @@ const save = () => {
     language: localLang.value,
     mode: localMode.value,
     selfCritique: localSelfCritique.value,
-    quantify: localQuantify.value
+    quantify: localQuantify.value,
+    roleSpecific: localRoleSpecific.value
   })
   store.closeSettings()
 }
@@ -131,6 +134,23 @@ const keyMasked = computed(() =>
               counts already stated in bullets) into the rewrite. Does NOT invent
               percentages or KPIs. If the ATS score would drop, the original is
               kept automatically.
+            </span>
+          </span>
+        </label>
+
+        <label class="flex items-start gap-3 cursor-pointer select-none">
+          <input
+            v-model="localRoleSpecific"
+            type="checkbox"
+            class="mt-1 h-4 w-4 rounded border-ink-300 text-accent-600 focus:ring-accent-500"
+          />
+          <span class="flex-1">
+            <span class="label block">Role-specific prompts</span>
+            <span class="text-xs text-ink-500">
+              Detects whether the vacancy is for engineering, design, product,
+              marketing, data or operations, and injects archetype-specific
+              guidance (summary angle, bullet style, signals an ATS/HR expects).
+              No extra LLM call — detection is deterministic.
             </span>
           </span>
         </label>

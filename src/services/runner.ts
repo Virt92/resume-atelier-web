@@ -12,6 +12,7 @@ import {
   translateAndPolish,
   type PipelineContext
 } from './pipeline'
+import { detectRoleArchetype } from './roleArchetype'
 import { useSessionStore } from '../stores/session'
 
 export async function runPipeline(): Promise<void> {
@@ -48,6 +49,15 @@ export async function runPipeline(): Promise<void> {
     const evidence = await mapEvidence(ctx, facts, vacancy)
     store.evidence = evidence
 
+    // Role archetype: deterministic classification of the vacancy into one of
+    // engineering / design / product / marketing / data / ops / other. Lets
+    // the rewriter apply archetype-specific guidance (summary angle, bullet
+    // style, signals an ATS/HR expects). Skippable via settings.roleSpecific
+    // (default ON).
+    const roleSpecificEnabled = store.settings.roleSpecific !== false
+    const archetype = roleSpecificEnabled ? detectRoleArchetype(vacancy) : undefined
+    store.roleArchetype = archetype ?? null
+
     // Baseline ATS: what does the ORIGINAL resume score against this vacancy,
     // before any rewrite/translation? Deterministic keyword scan + shared rubric.
     store.baselineAudit = baselineAtsAudit(
@@ -57,7 +67,7 @@ export async function runPipeline(): Promise<void> {
       evidence
     )
 
-    let rewritten = await rewriteResume(ctx, facts, vacancy, evidence)
+    let rewritten = await rewriteResume(ctx, facts, vacancy, evidence, archetype)
     store.rewritten = rewritten
 
     // Quantification pass: insert real numbers from facts into the rewrite.
@@ -92,7 +102,8 @@ export async function runPipeline(): Promise<void> {
           facts,
           vacancy,
           evidence,
-          critique
+          critique,
+          archetype
         )
         store.rewritten = rewritten
       } catch {

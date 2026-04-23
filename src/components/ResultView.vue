@@ -54,6 +54,19 @@ const scoreDelta = computed(() => {
   return finalScore.value - baselineScore.value
 })
 
+const archetypeLabel = computed(() => {
+  switch (store.roleArchetype) {
+    case 'engineering': return 'Engineering'
+    case 'design': return 'Design'
+    case 'product': return 'Product'
+    case 'marketing': return 'Marketing'
+    case 'data': return 'Data / Analytics'
+    case 'ops': return 'Operations'
+    case 'other': return 'General'
+    default: return null
+  }
+})
+
 // Theme plumbing: apply tokens as inline CSS variables on the resume sheet so
 // live preview re-renders instantly when the dropdown changes.
 const theme = computed(() => getTheme(store.settings.theme))
@@ -98,7 +111,16 @@ function printPdf() {
     <!-- Sidebar -->
     <aside class="space-y-4 no-print lg:sticky lg:top-20 lg:self-start">
       <div class="card p-5">
-        <div class="label mb-1">ATS audit</div>
+        <div class="flex items-start justify-between mb-1">
+          <div class="label">ATS audit</div>
+          <span
+            v-if="archetypeLabel"
+            class="text-[11px] px-2 py-0.5 rounded-full bg-accent-50 text-accent-800 border border-accent-100"
+            :title="'Role archetype detected from vacancy; drives summary + bullet guidance'"
+          >
+            {{ archetypeLabel }}
+          </span>
+        </div>
         <div v-if="baselineScore != null && finalScore != null" class="flex items-baseline gap-3">
           <div class="flex items-baseline gap-1">
             <div class="font-display text-2xl font-bold" :class="scoreTone(baselineScore)">
