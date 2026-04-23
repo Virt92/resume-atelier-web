@@ -36,15 +36,31 @@ async function runStage<T>(
   opts?: { temperature?: number }
 ): Promise<T> {
   ctx.onProgress?.(stage, 'running')
-  try {
+  const callOnce = async (extraInstruction: string) => {
     const res = await callLlm({
       apiKey: ctx.apiKey,
       model: ctx.model,
       systemPrompt: SYSTEM_PROMPT,
-      prompt,
+      prompt: extraInstruction ? `${extraInstruction}\n\n${prompt}` : prompt,
       temperature: opts?.temperature
     })
-    const parsed = extractJson<T>(res.text)
+    return extractJson<T>(res.text)
+  }
+  try {
+    let parsed: T
+    try {
+      parsed = await callOnce('')
+    } catch (firstErr) {
+      // LLMs sometimes return truncated JSON, extra prose, or mixed content.
+      // Retry once with an explicit instruction; second failure propagates.
+      const isParseFail =
+        firstErr instanceof Error &&
+        /parse JSON|Unexpected token|JSON/.test(firstErr.message)
+      if (!isParseFail) throw firstErr
+      parsed = await callOnce(
+        'IMPORTANT: return ONLY a single valid JSON value. No prose, no markdown fences, no comments. Start with { or [ and end with the matching } or ]. Do not truncate.'
+      )
+    }
     ctx.onProgress?.(stage, 'done')
     return parsed
   } catch (e) {
@@ -595,32 +611,86 @@ export function baselineAtsAudit(
   }
 }
 
+function rewrittenAsText(rewritten: RewrittenResume): string {
+  const parts: string[] = []
+  if (rewritten.summary) parts.push(rewritten.summary)
+  if (rewritten.skills?.length) parts.push(rewritten.skills.join(' · '))
+  if (rewritten.latestRoleBullets?.length)
+    parts.push(rewritten.latestRoleBullets.join('\n'))
+  if (rewritten.experience?.length) {
+    for (const role of rewritten.experience) {
+      if (role.role) parts.push(role.role)
+      if (role.company) parts.push(role.company)
+      if (role.bullets?.length) parts.push(role.bullets.join('\n'))
+    }
+  }
+  return parts.join('\n')
+}
+
+/**
+ * Deterministic ATS audit on the REWRITTEN resume. Mirrors baselineAtsAudit but
+ * scores the adapted output instead of the original. Used as a fallback when
+ * the LLM ATS auditor returns non-JSON or times out, so the pipeline degrades
+ * gracefully instead of failing the whole run.
+ */
+export function deterministicAtsAudit(
+  rewritten: RewrittenResume,
+  facts: ResumeFacts,
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
+): ATSAudit {
+  return baselineAtsAudit(rewrittenAsText(rewritten), facts, vacancy, evidence)
+}
+
 export async function atsAudit(
   ctx: PipelineContext,
   rewritten: RewrittenResume,
+  facts: ResumeFacts,
   vacancy: VacancyAnalysis,
   evidence: EvidenceMap
 ): Promise<ATSAudit> {
   // temperature=0: ATS audit is a counting task, not a creative task. We want
   // the same input to produce the same breakdown every run so users don't see
   // the score flicker between sessions.
-  const raw = await runStage<Partial<ATSAudit>>(
-    ctx,
-    'ats_audit',
-    atsAuditPrompt(rewritten, vacancy, evidence),
-    { temperature: 0 }
-  )
-  const reconciled = reconcileAtsScore(
-    raw.breakdown,
-    typeof raw.score === 'number' ? raw.score : undefined,
-    vacancy,
-    evidence
-  )
-  return {
-    score: reconciled.score,
-    warnings: raw.warnings ?? [],
-    keywordCoverage: raw.keywordCoverage ?? [],
-    breakdown: reconciled.breakdown
+  try {
+    const raw = await runStage<Partial<ATSAudit>>(
+      ctx,
+      'ats_audit',
+      atsAuditPrompt(rewritten, vacancy, evidence),
+      { temperature: 0 }
+    )
+    const reconciled = reconcileAtsScore(
+      raw.breakdown,
+      typeof raw.score === 'number' ? raw.score : undefined,
+      vacancy,
+      evidence
+    )
+    return {
+      score: reconciled.score,
+      warnings: raw.warnings ?? [],
+      keywordCoverage: raw.keywordCoverage ?? [],
+      breakdown: reconciled.breakdown
+    }
+  } catch (e) {
+    // LLM failed (bad JSON, timeout, 5xx). Fall back to deterministic scoring
+    // so the user still sees an ATS score instead of a pipeline-wide error.
+    const msg = e instanceof Error ? e.message : String(e)
+    const fallback = deterministicAtsAudit(rewritten, facts, vacancy, evidence)
+    ctx.onProgress?.('ats_audit', 'done')
+    const fb = fallback.breakdown
+    return {
+      score: fallback.score,
+      keywordCoverage: fallback.keywordCoverage,
+      warnings: [
+        'LLM auditor unavailable; fell back to deterministic keyword-based score',
+        ...(fallback.warnings ?? [])
+      ],
+      // Encode the underlying error into breakdown.penalties so it's visible
+      // in the sidebar for debugging without scaring the user.
+      breakdown: fb
+        ? { ...fb, penalties: [...fb.penalties, `LLM error: ${msg}`] }
+        : undefined
+    }
   }
 }
 
