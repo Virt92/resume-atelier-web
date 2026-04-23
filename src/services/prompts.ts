@@ -114,8 +114,7 @@ export const rewritePrompt = (
   }
 
   return `
-You rewrite the whole resume — summary, skills, and bullets of EVERY role — to
-honestly match a vacancy. Your goal is to maximise ATS coverage WITHOUT lying.
+You rewrite selected resume sections to better match a vacancy — honestly.
 
 Output strict JSON:
 {
@@ -130,29 +129,23 @@ Output strict JSON:
   ]
 }
 
-HARD RULES (violating any of these fails the rewrite):
-- Target language: ${languageName[language]}. Translate ALL narrative content into the target language.
+Hard constraints:
+- Target language: ${languageName[language]}. Translate content if source differs.
 - Mode: ${modeHint[mode]}
-- NEVER invent companies, tools, products, certifications, years of experience, domains (fintech/banking/healthcare etc.), university degrees, or portfolio links that are not already in the source facts.
-- NEVER copy sentences verbatim from the vacancy. Rephrase in the candidate's own voice.
-- PRESERVE exactly: all dates, company names, and degree institutions. Role titles may be lightly harmonised to the vacancy title (e.g. "Designer" → "UX/UI Designer") ONLY when the candidate's actual duties already match that title.
-- "experience" must contain the SAME entries as input, in the SAME order. You MAY tighten bullets of non-latest roles, but you may NOT add fictional responsibilities to them.
-- "latestRoleBullets" is the rewritten bullet list for the FIRST experience entry. Put the same content into experience[0].bullets.
+- NEVER invent companies, tools, certifications, years, domains, or portfolio links that aren't in the source facts.
+- NEVER copy vacancy sentences verbatim. Paraphrase naturally.
+- PRESERVE all dates, company names, role titles (except the latest role title may be slightly harmonised to match the vacancy title IF actual duties already match), and degrees exactly.
+- "experience" must contain the SAME entries in the SAME order.
+- "latestRoleBullets" is the rewritten bullet list for the FIRST experience entry; mirror it into experience[0].bullets.
+- Leave bullets of non-latest roles unchanged (same text, just translated if needed).
 
-INTEGRATION PLAYBOOK (this is the point of the rewrite):
-1. Summary: 3 to 5 sentences, 45 to 90 words total. Anchor on the candidate's real role + domain, then weave in vacancy responsibilities and tools that have DIRECT or INDIRECT support in evidence (never "unsupported"). Mention the target role title if it genuinely describes the candidate.
-2. Skills: take the union of (original skills) ∪ (vacancy tools/domain terms that have direct or indirect evidence in the resume). Normalise casing. Do not add skills marked "unsupported".
-3. Latest role bullets: rewrite into 6 to 10 bullets. Every bullet must be grounded in a real fact from experience[0]. Within that constraint:
-   - For EACH evidence.items entry whose support is "direct" OR "indirect", produce at least one bullet (in the latest role OR an earlier role) that naturally uses the vacancy terminology for that requirement.
-   - Example of honest integration: if evidence says "prototyping is present but not specifically with Figma", do NOT claim Figma. Instead phrase it as "Built high-fidelity prototypes and wireframes as part of the design system workflow", using the requirement term "prototypes/wireframes" without inventing the tool name.
-   - Example of dishonest integration (forbidden): if the resume never mentions banking, do NOT write "designed banking interfaces" just because the vacancy is a bank.
-4. Non-latest roles: you may tighten each bullet to use ATS-friendly phrasing (e.g. "responsive design", "design system", "cross-functional collaboration") WHEN the original bullet already implied that work. Keep the same bullet count per role. Do not add bullets to older roles.
-5. Unsupported requirements: NEVER integrate them into bullets or summary. They stay in the Gap Assist output for the candidate to add manually.
+Integration playbook (the goal of the rewrite):
+1. Summary: 3-4 sentences, 40-80 words. Start from the candidate's actual role + seniority and weave in vacancy RESPONSIBILITIES and TOOLS that have "direct" or "indirect" support in the evidence map. Do NOT mention anything marked "unsupported".
+2. Skills: keep the ORIGINAL skills from facts.skills as a base (technologies, tools, methodologies — NOT role titles). Add vacancy tools/domain terms whose evidence is "direct" or "indirect". Never output role names (e.g. "Brand Designer") in the skills array.
+3. Latest role bullets: 6-9 bullets. Each bullet MUST be grounded in a real fact from experience[0].bullets. For every evidence item marked "direct" or "indirect", make sure its vacancy terminology appears naturally in at least one bullet (or the summary, or skills). Honest example: if evidence says "prototyping present but not with Figma", you may write "Built high-fidelity prototypes and wireframes" — but never add "in Figma".
+4. Unsupported requirements stay out of the resume entirely — they belong to Gap Assist.
 
-Quality checks before responding:
-- Re-read every bullet: does it describe something the source facts already said? If no, rewrite or delete it.
-- Re-read the summary: is every claim traceable to facts? If no, soften to a neutral phrasing.
-- Make sure the rewritten resume actually reads like a stronger version of the same candidate, not a template.
+Before returning, re-read every claim: if it is not traceable to facts, soften or delete it.
 
 Resume facts JSON:
 ${JSON.stringify(facts)}
