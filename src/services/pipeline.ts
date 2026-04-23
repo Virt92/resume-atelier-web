@@ -130,15 +130,33 @@ export async function rewriteResume(
       supportedTools
     )
   )
-  // Seed skills from facts.skills + supported tools if LLM returned nothing
-  // coherent. Drop role titles either way.
-  const rawSkills =
-    raw.skills?.length ? raw.skills : [...(facts.skills ?? []), ...supportedTools]
-  const skills = sanitizeSkills(rawSkills)
+  // Always build skills as sanitize(raw.skills ∪ facts.skills ∪ supportedTools).
+  // This guarantees tool coverage regardless of what the LLM chose to emit.
+  const unionSkills: string[] = [
+    ...(raw.skills ?? []),
+    ...(facts.skills ?? []),
+    ...supportedTools
+  ]
+  let skills = sanitizeSkills(unionSkills)
+  // If sanitize stripped everything, at least keep supportedTools (tools list
+  // contains no role titles by construction).
+  if (skills.length === 0) skills = sanitizeSkills(supportedTools)
+
+  let summary = raw.summary ?? facts.summary ?? ''
+  if (wordCount(summary) < 60) {
+    summary = await expandSummary(
+      ctx,
+      facts,
+      vacancy,
+      supportedKeywords,
+      supportedTools,
+      summary
+    )
+  }
 
   return {
-    summary: raw.summary ?? facts.summary ?? '',
-    skills: skills.length ? skills : sanitizeSkills(supportedTools),
+    summary,
+    skills,
     latestRoleBullets:
       raw.latestRoleBullets?.length
         ? raw.latestRoleBullets
@@ -187,9 +205,10 @@ export async function translateAndPolish(
   }
   const nextRewritten: RewrittenResume = {
     summary: raw.rewritten?.summary ?? rewritten.summary,
-    skills: sanitizeSkills(
-      raw.rewritten?.skills?.length ? raw.rewritten.skills : rewritten.skills
-    ),
+    skills: sanitizeSkills([
+      ...(raw.rewritten?.skills ?? []),
+      ...rewritten.skills
+    ]),
     latestRoleBullets: raw.rewritten?.latestRoleBullets?.length
       ? raw.rewritten.latestRoleBullets
       : rewritten.latestRoleBullets,
@@ -207,7 +226,143 @@ export async function translateAndPolish(
       : rewritten.experience,
     changedSections: rewritten.changedSections
   }
-  return { facts: nextFacts, rewritten: nextRewritten }
+  // Second pass: if target is a Cyrillic language and some bullets still read
+  // as English, translate just those residuals. Keeps everything else intact.
+  const polishedRewritten = await translateResidualBullets(
+    ctx,
+    nextRewritten,
+    ctx.language
+  )
+  return { facts: nextFacts, rewritten: polishedRewritten }
+}
+
+function wordCount(s: string | undefined | null): number {
+  if (!s) return 0
+  return s.trim().split(/\s+/).filter(Boolean).length
+}
+
+function hasCyrillic(s: string): boolean {
+  return /[\u0400-\u04FF]/.test(s)
+}
+
+function looksLikeEnglish(s: string): boolean {
+  // At least 3 English words in a row, and no Cyrillic anywhere.
+  if (hasCyrillic(s)) return false
+  return /[A-Za-z]{2,}(?:[\s\-,.:;/][A-Za-z]{2,}){2,}/.test(s)
+}
+
+async function expandSummary(
+  ctx: PipelineContext,
+  facts: ResumeFacts,
+  vacancy: VacancyAnalysis,
+  supportedKeywords: string[],
+  supportedTools: string[],
+  currentSummary: string
+): Promise<string> {
+  try {
+    const prompt = `
+Rewrite the candidate's resume SUMMARY to 4-5 sentences, 60-110 words total, in ${ctx.language}.
+
+HARD RULES:
+- Base every claim on the provided facts. Never invent experience, tools, years, or domains not in facts.
+- Weave in as many of these supported vacancy keywords as naturally fit: ${supportedKeywords.slice(0, 10).join(', ')}.
+- Mention supported tools/methodologies: ${supportedTools.slice(0, 8).join(', ')}.
+- Keep proper names / tool names (Figma, Jira, etc.) in original form.
+- Output ONLY the rewritten summary as a single string, no JSON, no quotes, no preamble.
+
+Candidate facts JSON:
+${JSON.stringify({ name: facts.name, summary: facts.summary, inferredRole: facts.inferredRole, experience: facts.experience.slice(0, 3), skills: facts.skills })}
+
+Target role: ${vacancy.roleTitle}${vacancy.seniority ? ' / ' + vacancy.seniority : ''}
+
+Current (too short) summary:
+${currentSummary}
+`.trim()
+    const res = await callLlm({
+      apiKey: ctx.apiKey,
+      model: ctx.model,
+      systemPrompt: SYSTEM_PROMPT,
+      prompt
+    })
+    const text = res.text.trim().replace(/^["']|["']$/g, '')
+    if (wordCount(text) >= 50) return text
+  } catch {
+    // non-fatal; keep the original short summary
+  }
+  return currentSummary
+}
+
+async function translateResidualBullets(
+  ctx: PipelineContext,
+  rewritten: RewrittenResume,
+  target: Language
+): Promise<RewrittenResume> {
+  const cyrTarget = target === 'Ukrainian' || target === 'Russian'
+  if (!cyrTarget) return rewritten
+  // Collect all English-looking strings we need to translate.
+  const collectJobs: Array<{ path: string; value: string }> = []
+  rewritten.experience.forEach((role, ri) => {
+    role.bullets.forEach((b, bi) => {
+      if (looksLikeEnglish(b)) collectJobs.push({ path: `e${ri}.b${bi}`, value: b })
+    })
+  })
+  rewritten.latestRoleBullets.forEach((b, bi) => {
+    if (looksLikeEnglish(b)) collectJobs.push({ path: `latest.${bi}`, value: b })
+  })
+  if (looksLikeEnglish(rewritten.summary)) {
+    collectJobs.push({ path: 'summary', value: rewritten.summary })
+  }
+  if (collectJobs.length === 0) return rewritten
+  try {
+    const prompt = `
+Translate each of the following strings into ${target}. Keep brand / tool names (Figma, Jira, HTML/CSS, Ant Design, etc.) in the original form, but every other word must be in ${target}. Return strict JSON: { "translations": string[] } preserving input order, same length.
+
+Inputs:
+${JSON.stringify(collectJobs.map((j) => j.value))}
+`.trim()
+    const res = await callLlm({
+      apiKey: ctx.apiKey,
+      model: ctx.model,
+      systemPrompt: SYSTEM_PROMPT,
+      prompt
+    })
+    const parsed = extractJson<{ translations?: string[] }>(res.text)
+    const out = parsed.translations ?? []
+    if (out.length !== collectJobs.length) return rewritten
+    const experience = rewritten.experience.map((role) => ({
+      ...role,
+      bullets: [...role.bullets]
+    }))
+    const latestBullets = [...rewritten.latestRoleBullets]
+    let summary = rewritten.summary
+    collectJobs.forEach((job, idx) => {
+      const translated = (out[idx] ?? '').trim()
+      if (!translated || !hasCyrillic(translated)) return
+      if (job.path === 'summary') {
+        summary = translated
+      } else if (job.path.startsWith('latest.')) {
+        const bi = Number(job.path.split('.')[1])
+        if (Number.isFinite(bi)) latestBullets[bi] = translated
+      } else {
+        const m = /^e(\d+)\.b(\d+)$/.exec(job.path)
+        if (m) {
+          const ri = Number(m[1])
+          const bi = Number(m[2])
+          if (experience[ri]?.bullets?.[bi] !== undefined) {
+            experience[ri].bullets[bi] = translated
+          }
+        }
+      }
+    })
+    return {
+      ...rewritten,
+      summary,
+      latestRoleBullets: latestBullets,
+      experience
+    }
+  } catch {
+    return rewritten
+  }
 }
 
 /**
