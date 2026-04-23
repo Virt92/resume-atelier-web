@@ -48,7 +48,7 @@ async function fetchFromUrl() {
       <input
         v-model="urlInput"
         class="input"
-        placeholder="https://jobs.dou.ua/...  (DOU, Djinni, LinkedIn, Indeed, Greenhouse, Lever supported)"
+        placeholder="https://jobs.dou.ua/…  (DOU, Djinni, Indeed, Greenhouse, Lever — or paste text below)"
       />
       <button class="btn-secondary shrink-0" :disabled="urlBusy || !urlInput" @click="fetchFromUrl">
         {{ urlBusy ? 'Fetching…' : 'Fetch' }}
