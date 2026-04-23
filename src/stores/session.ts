@@ -29,10 +29,14 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_KEY)
     if (!raw) return defaults
     const parsed = JSON.parse(raw) as Partial<Settings>
+    const validLangs: Language[] = ['English', 'Ukrainian', 'Russian']
+    const lang = validLangs.includes(parsed.language as Language)
+      ? (parsed.language as Language)
+      : defaults.language
     return {
       falKey: parsed.falKey || defaults.falKey,
       model: parsed.model || defaults.model,
-      language: (parsed.language as Language) || defaults.language,
+      language: lang,
       mode: (parsed.mode as Mode) || defaults.mode,
       theme: (parsed.theme as ThemeId) || defaults.theme
     }
