@@ -113,14 +113,32 @@ export async function rewriteResume(
   vacancy: VacancyAnalysis,
   evidence: EvidenceMap
 ): Promise<RewrittenResume> {
+  const { supportedKeywords, supportedTools } = computeSupportedKeywords(
+    vacancy,
+    evidence
+  )
   const raw = await runStage<Partial<RewrittenResume>>(
     ctx,
     'rewrite',
-    rewritePrompt(facts, vacancy, evidence, ctx.language, ctx.mode)
+    rewritePrompt(
+      facts,
+      vacancy,
+      evidence,
+      ctx.language,
+      ctx.mode,
+      supportedKeywords,
+      supportedTools
+    )
   )
+  // Seed skills from facts.skills + supported tools if LLM returned nothing
+  // coherent. Drop role titles either way.
+  const rawSkills =
+    raw.skills?.length ? raw.skills : [...(facts.skills ?? []), ...supportedTools]
+  const skills = sanitizeSkills(rawSkills)
+
   return {
     summary: raw.summary ?? facts.summary ?? '',
-    skills: raw.skills?.length ? raw.skills : facts.skills,
+    skills: skills.length ? skills : sanitizeSkills(supportedTools),
     latestRoleBullets:
       raw.latestRoleBullets?.length
         ? raw.latestRoleBullets
@@ -169,7 +187,9 @@ export async function translateAndPolish(
   }
   const nextRewritten: RewrittenResume = {
     summary: raw.rewritten?.summary ?? rewritten.summary,
-    skills: raw.rewritten?.skills?.length ? raw.rewritten.skills : rewritten.skills,
+    skills: sanitizeSkills(
+      raw.rewritten?.skills?.length ? raw.rewritten.skills : rewritten.skills
+    ),
     latestRoleBullets: raw.rewritten?.latestRoleBullets?.length
       ? raw.rewritten.latestRoleBullets
       : rewritten.latestRoleBullets,
@@ -398,6 +418,102 @@ export async function gapAssist(
     safeToStrengthen: raw.safeToStrengthen ?? [],
     manualInputNeeded: raw.manualInputNeeded ?? []
   }
+}
+
+/**
+ * Build a keyword coverage brief for the rewrite prompt. We turn the evidence
+ * map + vacancy into two lists:
+ *   - supportedKeywords: vacancy.mustHave + preferred + responsibilities that
+ *     have "direct" or "indirect" support in the evidence map. Those are safe
+ *     to mention verbatim — including them is ATS matching, not fabrication.
+ *   - supportedTools: vacancy.tools / domainTerms that are NOT flagged
+ *     "unsupported" by the evidence map. If a tool is not in the evidence
+ *     map at all, we assume it is at best adjacent and leave the LLM to
+ *     decide — we do NOT pre-include it to avoid fabricated claims.
+ */
+function computeSupportedKeywords(
+  vacancy: VacancyAnalysis,
+  evidence: EvidenceMap
+): { supportedKeywords: string[]; supportedTools: string[] } {
+  const byReq = new Map<string, string>()
+  for (const item of evidence.items ?? []) {
+    const key = item.requirement.trim().toLowerCase()
+    if (!key) continue
+    byReq.set(key, item.support)
+  }
+
+  const isSupported = (phrase: string): boolean => {
+    const key = phrase.trim().toLowerCase()
+    const sup = byReq.get(key)
+    // Only include when we have explicit direct/indirect support.
+    return sup === 'direct' || sup === 'indirect'
+  }
+
+  const dedupe = (arr: string[]): string[] => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const v of arr) {
+      const k = v.trim().toLowerCase()
+      if (!k || seen.has(k)) continue
+      seen.add(k)
+      out.push(v.trim())
+    }
+    return out
+  }
+
+  const supportedKeywords = dedupe([
+    ...vacancy.mustHave.filter(isSupported),
+    ...vacancy.preferred.filter(isSupported),
+    ...vacancy.responsibilities.filter(isSupported),
+    ...evidence.focusSummary,
+    ...evidence.focusLatestRole
+  ])
+
+  const supportedTools = dedupe([
+    ...vacancy.tools.filter(isSupported),
+    ...vacancy.domainTerms.filter(isSupported),
+    ...evidence.focusSkills
+  ])
+
+  return { supportedKeywords, supportedTools }
+}
+
+/**
+ * Phrases that are job titles — never belong in the skills array.
+ */
+// Reject strings that are clearly job/role titles (suffix noun). These never
+// belong in a skills array even when the LLM confuses them with skills.
+const ROLE_TITLE_PATTERNS: RegExp[] = [
+  /\bdesigner\b/i,
+  /\bdeveloper\b/i,
+  /\bengineer\b/i,
+  /\barchitect\b/i,
+  /\banalyst\b/i,
+  /\bspecialist\b/i,
+  /\bconsultant\b/i,
+  /\bmanager\b/i,
+  /\bowner\b/i,
+  /scrum master/i,
+  /smm[- ]?менеджер/i,
+  /дизайнер/i,
+  /розробник/i,
+  /менеджер/i
+]
+
+export function sanitizeSkills(skills: string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of skills ?? []) {
+    const s = String(raw || '').trim()
+    if (!s) continue
+    // Drop obvious role/job titles.
+    if (ROLE_TITLE_PATTERNS.some((re) => re.test(s))) continue
+    const key = s.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(s)
+  }
+  return out
 }
 
 function normalizeFacts(raw: Partial<ResumeFacts>): ResumeFacts {

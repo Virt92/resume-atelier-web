@@ -102,7 +102,9 @@ export const rewritePrompt = (
   vacancy: unknown,
   evidence: unknown,
   language: Language,
-  mode: Mode
+  mode: Mode,
+  supportedKeywords: string[],
+  supportedTools: string[]
 ) => {
   const modeHint: Record<Mode, string> = {
     standard: 'Balanced adaptation: uplift wording, keep tone, preserve truth.',
@@ -113,8 +115,15 @@ export const rewritePrompt = (
       'Large mismatch: focus on transferable skills honestly; do NOT pretend to have missing domain experience.'
   }
 
+  const keywordsBlock = supportedKeywords.length
+    ? supportedKeywords.map((k) => `  - ${k}`).join('\n')
+    : '  (none)'
+  const toolsBlock = supportedTools.length
+    ? supportedTools.map((k) => `  - ${k}`).join('\n')
+    : '  (none)'
+
   return `
-You rewrite selected resume sections to better match a vacancy — honestly.
+You rewrite a resume so it honestly matches a vacancy while maximising ATS keyword coverage.
 
 Output strict JSON:
 {
@@ -135,17 +144,69 @@ Hard constraints:
 - NEVER invent companies, tools, certifications, years, domains, or portfolio links that aren't in the source facts.
 - NEVER copy vacancy sentences verbatim. Paraphrase naturally.
 - PRESERVE all dates, company names, role titles (except the latest role title may be slightly harmonised to match the vacancy title IF actual duties already match), and degrees exactly.
-- "experience" must contain the SAME entries in the SAME order.
+- "experience" must contain the SAME entries in the SAME order as facts.experience.
 - "latestRoleBullets" is the rewritten bullet list for the FIRST experience entry; mirror it into experience[0].bullets.
-- Leave bullets of non-latest roles unchanged (same text, just translated if needed).
+- Leave bullets of non-latest roles unchanged (same text, just translated into the target language).
 
-Integration playbook (the goal of the rewrite):
-1. Summary: 3-4 sentences, 40-80 words. Start from the candidate's actual role + seniority and weave in vacancy RESPONSIBILITIES and TOOLS that have "direct" or "indirect" support in the evidence map. Do NOT mention anything marked "unsupported".
-2. Skills: keep the ORIGINAL skills from facts.skills as a base (technologies, tools, methodologies — NOT role titles). Add vacancy tools/domain terms whose evidence is "direct" or "indirect". Never output role names (e.g. "Brand Designer") in the skills array.
-3. Latest role bullets: 6-9 bullets. Each bullet MUST be grounded in a real fact from experience[0].bullets. For every evidence item marked "direct" or "indirect", make sure its vacancy terminology appears naturally in at least one bullet (or the summary, or skills). Honest example: if evidence says "prototyping present but not with Figma", you may write "Built high-fidelity prototypes and wireframes" — but never add "in Figma".
-4. Unsupported requirements stay out of the resume entirely — they belong to Gap Assist.
+### MANDATORY KEYWORDS (supported by evidence — direct or indirect)
 
-Before returning, re-read every claim: if it is not traceable to facts, soften or delete it.
+These phrases MUST each appear (verbatim or near-verbatim, adapted to target
+language) somewhere in {summary + skills + latestRoleBullets} taken together.
+They are the vacancy's own must-have / preferred / responsibility terms that
+already have honest support in the candidate's facts — including them is NOT
+fabrication, it is ATS matching. If you omit any, the resume will fail the
+ATS match.
+
+Must-have / preferred keywords to cover:
+${keywordsBlock}
+
+Tool / domain keywords to cover (as skills or inside bullets):
+${toolsBlock}
+
+### SKILLS ARRAY RULES (critical — read twice)
+
+The "skills" array must contain **tools, methodologies, techniques** only —
+for example: "Figma", "Adobe Illustrator", "wireframing", "prototyping",
+"UI kits", "design systems", "responsive design", "UX research", "Agile",
+"Jira". It MUST NEVER contain role or job titles. The following are FORBIDDEN
+in skills: "UI/UX Designer", "Brand Designer", "SMM manager",
+"Graphic Designer", "Product Designer", or any other job title.
+
+Start from facts.skills (if present), UNION with every tool/methodology
+keyword from the "tools / domain keywords" block above that has direct or
+indirect support. Normalise casing, deduplicate. Target 8-14 items.
+
+### SUMMARY RULES
+
+- 4 to 5 sentences, total 60-110 words — do NOT go under 60 words.
+- Sentence 1: actual role + seniority + domain (from facts).
+- Sentences 2-3: two or three of the vacancy RESPONSIBILITIES the candidate
+  has genuinely performed (use the supported keywords above).
+- Sentence 4: tools / methodologies the candidate uses (the supported tool
+  keywords above, in resume language).
+- Sentence 5 (optional): motivation tied to the target role / domain.
+- Do NOT mention anything marked "unsupported" in the evidence map.
+
+### LATEST ROLE BULLETS RULES
+
+6-9 bullets. Each bullet MUST be grounded in a real fact from
+experience[0].bullets — keep the underlying achievement, but re-phrase with
+vacancy terminology drawn from the supported keywords above.
+
+Every supported must-have that does not naturally land in the summary must
+appear in at least one bullet. When an evidence note says a capability is
+"present but not with tool X" (e.g. "prototyping present but not with
+Figma"), you may write "Built high-fidelity prototypes and wireframes" —
+but you MUST NOT add "in Figma" or any other unsupported tool name.
+
+### INTEGRATION CHECK (perform before returning)
+
+1. For each line in the two keyword blocks above, search your summary +
+   skills + latestRoleBullets. If the keyword is missing, add it to the
+   most natural place without fabricating new experience.
+2. Re-read every claim: if it is not traceable to facts, soften or delete.
+3. Verify the skills array contains NO role titles.
+4. Verify summary is ≥ 60 words.
 
 Resume facts JSON:
 ${JSON.stringify(facts)}
