@@ -1,0 +1,28 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor directories
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# Build artifacts
+*.zip
+.vite/
+TEST_PLAN.md
