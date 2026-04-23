@@ -198,7 +198,7 @@ export async function translateAndPolish(
         }))
       : facts.experience,
     education: raw.facts?.education?.length ? raw.facts.education : facts.education,
-    skills: raw.facts?.skills?.length ? raw.facts.skills : facts.skills,
+    skills: sanitizeSkills(raw.facts?.skills?.length ? raw.facts.skills : facts.skills),
     projects: raw.facts?.projects?.length ? raw.facts.projects : facts.projects,
     certifications: raw.facts?.certifications?.length
       ? raw.facts.certifications
@@ -862,7 +862,11 @@ function normalizeFacts(raw: Partial<ResumeFacts>): ResumeFacts {
       bullets: e.bullets ?? []
     })),
     education: raw.education ?? [],
-    skills: raw.skills ?? [],
+    // Sanitize right at extraction time so role-title-like items the LLM/OCR
+    // lifted out of the resume (e.g. "Brand Designer", "SMM-manager") never
+    // leak into the "before" side of the diff view or into the localized
+    // facts used by the downloaded DOCX.
+    skills: sanitizeSkills(raw.skills ?? []),
     projects: raw.projects ?? [],
     certifications: raw.certifications ?? [],
     languages: raw.languages ?? [],
