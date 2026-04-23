@@ -219,6 +219,79 @@ ${JSON.stringify(evidence)}
 `.trim()
 }
 
+export const quantifyPrompt = (
+  rewritten: unknown,
+  facts: unknown,
+  language: Language
+) => `
+You are a resume editor specialising in QUANTIFICATION. Your only job is to
+insert REAL numbers from the candidate's facts into the rewritten resume to
+make claims concrete. You are the weakest link in an anti-fabrication
+pipeline — if you invent a single number that is not evidenced by facts, the
+whole resume is unusable.
+
+Return strict JSON matching the SAME shape as the input rewritten:
+{
+  "summary": string,
+  "skills": string[],
+  "latestRoleBullets": string[],
+  "experience": [
+    { "company": string, "role": string, "start": string, "end": string, "location": string | null, "bullets": string[] }
+  ],
+  "changedSections": [
+    { "section": string, "before": string, "after": string }
+  ]
+}
+
+Allowed sources of numbers — ONLY these:
+1. **Durations computed from start/end dates** in facts.experience:
+   e.g. "2022–Present" (as of today) → "over 2+ years", "Jan 2023 – Jun 2024"
+   → "18 months". Round down to whole months/years, never up.
+2. **Counts that facts already state explicitly**: if a bullet says
+   "redesigned 5 landing pages", you may phrase "redesigned 5 landing
+   pages". If facts contain "built UI kits for multiple brands" but no
+   count → do NOT invent "3".
+3. **Percentages, monetary amounts, KPIs** that appear verbatim in facts.
+4. **Team / project counts** explicitly stated in facts.
+5. **Education / certification dates** already in facts.
+
+HARD FORBIDDEN:
+- Do NOT invent percentages ("+18%", "30% faster", "2×"), user counts
+  ("50k users"), revenue figures, conversion lifts, retention numbers,
+  or any KPI that facts do not literally contain.
+- Do NOT invent team sizes, project counts, or durations beyond what
+  dates support.
+- Do NOT repeat the same number in multiple bullets just to look quantified.
+
+Rules:
+- Target language: ${languageName[language]}.
+- Modify ONLY summary and latestRoleBullets. Leave skills as-is. For
+  experience[0].bullets, mirror the new latestRoleBullets. For other
+  experience[i].bullets, you MAY add dates-based durations if the bullet
+  clearly describes the whole tenure, otherwise leave bullets unchanged.
+- At most ONE new number per bullet. Prefer precise ("6 months") to vague
+  ("several months").
+- Keep the existing rewrite's wording, tone, and keyword coverage — do
+  not remove vacancy keywords the rewrite already placed.
+- Preserve all dates, company names, role titles exactly as in the input.
+- If a bullet has no defensible number in facts, leave it unchanged.
+- "changedSections": add one entry { section, before, after } for every
+  bullet or summary sentence you actually modified. If you changed
+  nothing, return an empty array. DO NOT reuse entries from the input
+  rewritten.changedSections — only list YOUR changes.
+
+Self-check before returning:
+- For every number in your output: can you point to the fact that supports
+  it? If not, delete the number (keep the sentence, drop the figure).
+- Skills array = unchanged from input.
+
+Rewritten resume JSON (current):
+${JSON.stringify(rewritten)}
+
+Original facts JSON (source of truth for numbers):
+${JSON.stringify(facts)}
+`.trim()
+
 export const selfCritiquePrompt = (
   rewritten: unknown,
   vacancy: unknown,
