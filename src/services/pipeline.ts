@@ -32,7 +32,8 @@ export interface PipelineContext {
 async function runStage<T>(
   ctx: PipelineContext,
   stage: string,
-  prompt: string
+  prompt: string,
+  opts?: { temperature?: number }
 ): Promise<T> {
   ctx.onProgress?.(stage, 'running')
   try {
@@ -40,7 +41,8 @@ async function runStage<T>(
       apiKey: ctx.apiKey,
       model: ctx.model,
       systemPrompt: SYSTEM_PROMPT,
-      prompt
+      prompt,
+      temperature: opts?.temperature
     })
     const parsed = extractJson<T>(res.text)
     ctx.onProgress?.(stage, 'done')
@@ -203,12 +205,16 @@ export async function translateAndPolish(
     inferredRole: raw.facts?.inferredRole ?? facts.inferredRole,
     sourceLanguage: facts.sourceLanguage
   }
+  // Skills: prefer the LLM-translated list. Unioning with the pre-translation
+  // list here is what caused UA+EN duplicates ("UX/UI дизайн" + "UX/UI design"
+  // as separate pills). Only fall back to the pre-translation list if the LLM
+  // dropped it entirely.
+  const translatedSkills = raw.rewritten?.skills?.length
+    ? raw.rewritten.skills
+    : rewritten.skills
   const nextRewritten: RewrittenResume = {
     summary: raw.rewritten?.summary ?? rewritten.summary,
-    skills: sanitizeSkills([
-      ...(raw.rewritten?.skills ?? []),
-      ...rewritten.skills
-    ]),
+    skills: sanitizeSkills(translatedSkills),
     latestRoleBullets: raw.rewritten?.latestRoleBullets?.length
       ? raw.rewritten.latestRoleBullets
       : rewritten.latestRoleBullets,
@@ -228,12 +234,20 @@ export async function translateAndPolish(
   }
   // Second pass: if target is a Cyrillic language and some bullets still read
   // as English, translate just those residuals. Keeps everything else intact.
-  const polishedRewritten = await translateResidualBullets(
+  const bulletsPolished = await translateResidualBullets(
     ctx,
     nextRewritten,
     ctx.language
   )
-  return { facts: nextFacts, rewritten: polishedRewritten }
+  // Third pass: same idea for the skills array. This guarantees we do not ship
+  // a mixed-language pill list like "UX/UI дизайн" + "UX/UI design" side by
+  // side. Proper nouns (Figma, Jira, Ant Design) are preserved by the LLM.
+  const skillsPolished = await translateResidualSkills(
+    ctx,
+    bulletsPolished,
+    ctx.language
+  )
+  return { facts: nextFacts, rewritten: skillsPolished }
 }
 
 function wordCount(s: string | undefined | null): number {
@@ -366,6 +380,117 @@ ${JSON.stringify(collectJobs.map((j) => j.value))}
 }
 
 /**
+ * Known proper-noun tools that should stay in original form even when the rest
+ * of the resume is in Ukrainian/Russian. These also count as "already fine" so
+ * we don't waste tokens trying to translate them.
+ */
+const PROPER_NOUN_SKILLS = new Set(
+  [
+    'figma',
+    'jira',
+    'sketch',
+    'adobe xd',
+    'photoshop',
+    'illustrator',
+    'webflow',
+    'notion',
+    'miro',
+    'zeplin',
+    'ant design',
+    'bootstrap',
+    'material ui',
+    'html/css',
+    'html',
+    'css',
+    'javascript',
+    'typescript',
+    'react',
+    'vue',
+    'canva',
+    'asana',
+    'slack',
+    'trello',
+    'github',
+    'gitlab',
+    'spline',
+    'framer'
+  ].map((s) => s.toLowerCase())
+)
+
+async function translateResidualSkills(
+  ctx: PipelineContext,
+  rewritten: RewrittenResume,
+  target: Language
+): Promise<RewrittenResume> {
+  const cyrTarget = target === 'Ukrainian' || target === 'Russian'
+  if (!cyrTarget) return rewritten
+  // Index skills that still look English and are NOT proper-noun tools.
+  const jobs: Array<{ idx: number; value: string }> = []
+  rewritten.skills.forEach((s, idx) => {
+    const lower = s.trim().toLowerCase()
+    if (!lower) return
+    if (PROPER_NOUN_SKILLS.has(lower)) return
+    if (hasCyrillic(s)) return
+    // Short all-caps / mixed-case single tokens (e.g. "SMM", "UX") we keep.
+    if (/^[A-Z/&\- 0-9.]{2,6}$/.test(s.trim())) return
+    jobs.push({ idx, value: s })
+  })
+  if (jobs.length === 0) {
+    // Still dedupe in case LLM produced same-language duplicates.
+    return { ...rewritten, skills: dedupeSkills(rewritten.skills) }
+  }
+  try {
+    const prompt = `
+Translate each of the following resume skills into ${target}. Keep brand or tool names (Figma, Jira, Ant Design, HTML/CSS, Adobe XD, Webflow, etc.) exactly as-is. For descriptive skills (e.g. "responsive design", "user research", "design systems") translate to ${target}. Return strict JSON: { "translations": string[] } preserving input order, same length. Each translation should be 1-4 words.
+
+Inputs:
+${JSON.stringify(jobs.map((j) => j.value))}
+`.trim()
+    const res = await callLlm({
+      apiKey: ctx.apiKey,
+      model: ctx.model,
+      systemPrompt: SYSTEM_PROMPT,
+      prompt,
+      temperature: 0
+    })
+    const parsed = extractJson<{ translations?: string[] }>(res.text)
+    const out = parsed.translations ?? []
+    if (out.length !== jobs.length) {
+      return { ...rewritten, skills: dedupeSkills(rewritten.skills) }
+    }
+    const next = [...rewritten.skills]
+    jobs.forEach((job, i) => {
+      const t = (out[i] ?? '').trim()
+      if (!t) return
+      next[job.idx] = t
+    })
+    return { ...rewritten, skills: dedupeSkills(next) }
+  } catch {
+    return { ...rewritten, skills: dedupeSkills(rewritten.skills) }
+  }
+}
+
+/**
+ * Casefold + fuzzy dedup for the skills array. Collapses things like
+ * "responsive design" / "Responsive Design" / "RESPONSIVE DESIGN" to one entry,
+ * and also collapses "ui kits" + "UI Kits". We stop short of cross-language
+ * alias collapsing — that's what translateResidualSkills handles.
+ */
+function dedupeSkills(skills: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of skills) {
+    const s = String(raw || '').trim()
+    if (!s) continue
+    const key = s.toLowerCase().replace(/[\s\-_/]+/g, ' ').trim()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(s)
+  }
+  return out
+}
+
+/**
  * Deterministic baseline ATS audit on the ORIGINAL resume (no LLM). We scan the
  * raw resume text for vacancy keywords and reuse the same scoring rubric used
  * for the adapted resume. This is what the user's resume would score *before*
@@ -437,10 +562,14 @@ export async function atsAudit(
   vacancy: VacancyAnalysis,
   evidence: EvidenceMap
 ): Promise<ATSAudit> {
+  // temperature=0: ATS audit is a counting task, not a creative task. We want
+  // the same input to produce the same breakdown every run so users don't see
+  // the score flicker between sessions.
   const raw = await runStage<Partial<ATSAudit>>(
     ctx,
     'ats_audit',
-    atsAuditPrompt(rewritten, vacancy, evidence)
+    atsAuditPrompt(rewritten, vacancy, evidence),
+    { temperature: 0 }
   )
   const reconciled = reconcileAtsScore(
     raw.breakdown,

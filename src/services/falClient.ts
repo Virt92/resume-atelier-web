@@ -16,6 +16,7 @@ export interface LlmRequest {
   model: string
   apiKey: string
   jsonMode?: boolean
+  temperature?: number
 }
 
 export interface LlmResponse {
@@ -28,11 +29,14 @@ export async function callLlm(req: LlmRequest): Promise<LlmResponse> {
     throw new Error('Missing fal.ai API key. Add it in Settings.')
   }
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: req.model,
     prompt: req.prompt,
     system_prompt: req.systemPrompt,
     reasoning: false
+  }
+  if (typeof req.temperature === 'number') {
+    body.temperature = req.temperature
   }
 
   const res = await fetch(FAL_ENDPOINT, {
