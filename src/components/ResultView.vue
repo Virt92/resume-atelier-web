@@ -12,6 +12,15 @@ const exporting = ref(false)
 
 const beforeSummary = computed(() => store.facts?.summary ?? '')
 const afterSummary = computed(() => store.rewritten?.summary ?? '')
+// Word-diff is only meaningful when source and target are the same language.
+// For cross-language rewrites (e.g. English → Ukrainian) the diff turns into
+// noise — show the adapted text as-is instead.
+const summaryDiffMeaningful = computed(() => {
+  const src = store.detectedLanguage
+  const dst = store.settings.language
+  if (!src || !dst) return true
+  return src === dst
+})
 const beforeLatestBullets = computed(
   () => store.facts?.experience?.[0]?.bullets ?? []
 )
@@ -188,11 +197,17 @@ function printPdf() {
           <h2 class="resume-heading">Summary</h2>
           <p class="resume-body" :title="beforeSummary">
             <DiffSpan
-              v-if="showDiff"
+              v-if="showDiff && summaryDiffMeaningful"
               :before="beforeSummary"
               :after="afterSummary"
             />
             <span v-else>{{ afterSummary }}</span>
+          </p>
+          <p
+            v-if="showDiff && !summaryDiffMeaningful"
+            class="mt-1 text-[11px] text-ink-400"
+          >
+            Summary was rewritten in {{ store.settings.language }} (source was {{ store.detectedLanguage }}); inline diff hidden because languages differ.
           </p>
         </section>
 

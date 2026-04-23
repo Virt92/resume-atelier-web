@@ -84,7 +84,7 @@ export async function extractPdf(
       canvas.height = Math.ceil(viewport.height)
       const ctx = canvas.getContext('2d')
       if (!ctx) throw new Error('Canvas 2D context not available')
-      await page.render({ canvasContext: ctx, viewport, canvas }).promise
+      await page.render({ canvasContext: ctx, viewport }).promise
       const {
         data: { text: pageText }
       } = await worker.recognize(canvas)
