@@ -28,7 +28,7 @@ watch(
 const save = () => {
   store.updateSettings({
     falKey: localKey.value.trim(),
-    model: localModel.value.trim() || 'google/gemini-flash-1.5-8b',
+    model: localModel.value.trim() || 'anthropic/claude-sonnet-4.5',
     language: localLang.value,
     mode: localMode.value,
     selfCritique: localSelfCritique.value,
@@ -77,8 +77,8 @@ const keyMasked = computed(() =>
           <label class="label mb-1 block">Model</label>
           <input v-model="localModel" class="input font-mono text-sm" />
           <p class="text-xs text-ink-500 mt-1.5">
-            fal.ai any-llm route, e.g. <code>google/gemini-flash-1.5-8b</code>,
-            <code>anthropic/claude-3.5-sonnet</code>.
+            fal.ai any-llm route, e.g. <code>anthropic/claude-sonnet-4.5</code>,
+            <code>anthropic/claude-haiku-4.5</code>, <code>deepseek/deepseek-v3.1-terminus</code>.
           </p>
         </div>
 

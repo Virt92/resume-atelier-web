@@ -46,7 +46,7 @@ fal.ai и опциональных CORS-прокси).
 
 ```
 VITE_FAL_KEY=<ваш-fal-ключ>
-VITE_FAL_MODEL=google/gemini-flash-1.5-8b
+VITE_FAL_MODEL=anthropic/claude-sonnet-4.5
 ```
 
 После `npm run build` ключ будет зашит в бандл — пользователям ничего вводить

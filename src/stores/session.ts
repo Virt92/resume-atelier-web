@@ -14,7 +14,7 @@ import type {
   ThemeId,
   VacancyAnalysis
 } from '../types'
-import { getDefaultKey, getDefaultModel } from '../services/falClient'
+import { getDefaultKey, getDefaultModel, isDeprecatedModel } from '../services/falClient'
 
 const SETTINGS_KEY = 'resume-atelier:settings'
 
@@ -36,9 +36,12 @@ function loadSettings(): Settings {
     const lang = validLangs.includes(parsed.language as Language)
       ? (parsed.language as Language)
       : defaults.language
+    const storedModel = parsed.model
+    const model =
+      storedModel && !isDeprecatedModel(storedModel) ? storedModel : defaults.model
     return {
       falKey: parsed.falKey || defaults.falKey,
-      model: parsed.model || defaults.model,
+      model,
       language: lang,
       mode: (parsed.mode as Mode) || defaults.mode,
       theme: (parsed.theme as ThemeId) || defaults.theme,

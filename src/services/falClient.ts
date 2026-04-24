@@ -7,7 +7,34 @@ export function getDefaultKey(): string {
 }
 
 export function getDefaultModel(): string {
-  return (import.meta.env.VITE_FAL_MODEL as string | undefined) ?? 'google/gemini-flash-1.5-8b'
+  return (
+    (import.meta.env.VITE_FAL_MODEL as string | undefined) ??
+    'anthropic/claude-sonnet-4.5'
+  )
+}
+
+// Model identifiers that fal.ai any-llm no longer accepts.
+// Keep this list in sync with the 422 "literal_error" rejection list returned
+// by `https://fal.run/fal-ai/any-llm`. If we see one of these in localStorage,
+// we transparently migrate the user to the current default so the pipeline
+// keeps working without them having to re-enter Settings.
+const DEPRECATED_MODELS: ReadonlySet<string> = new Set([
+  'google/gemini-flash-1.5-8b',
+  'google/gemini-flash-1.5',
+  'google/gemini-pro-1.5',
+  'openai/gpt-4o',
+  'openai/gpt-4o-mini',
+  'anthropic/claude-3.5-sonnet',
+  'anthropic/claude-3.5-haiku',
+  'anthropic/claude-3-haiku',
+  'meta-llama/llama-3.1-8b-instruct',
+  'meta-llama/llama-3.1-70b-instruct',
+  'fal-ai/any-llm/openai/gpt-4o'
+])
+
+export function isDeprecatedModel(model: string | undefined | null): boolean {
+  if (!model) return true
+  return DEPRECATED_MODELS.has(model)
 }
 
 export interface LlmRequest {
